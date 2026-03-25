@@ -1,0 +1,1379 @@
+[
+  {
+    "project": {
+      "name": "rn-todo-app",
+      "path": "C:\\Users\\Acer\\arbxz\\rn-todo-app",
+      "packageManager": "npm",
+      "hasGit": true
+    },
+    "audit": {
+      "project": {
+        "name": "rn-todo-app",
+        "path": "C:\\Users\\Acer\\arbxz\\rn-todo-app",
+        "packageManager": "npm",
+        "hasGit": true
+      },
+      "vulnerabilities": [
+        {
+          "name": "@babel/helpers",
+          "severity": "moderate",
+          "title": "@babel/helpers",
+          "url": "",
+          "range": "<7.26.10",
+          "fixAvailable": true
+        },
+        {
+          "name": "@babel/runtime",
+          "severity": "moderate",
+          "title": "@babel/runtime",
+          "url": "",
+          "range": "<7.26.10",
+          "fixAvailable": true
+        },
+        {
+          "name": "@expo/cli",
+          "severity": "high",
+          "title": "@expo/cli",
+          "url": "",
+          "range": "<=0.0.0-canary-20231123-1b19f96-4 || 0.0.1-canary-20231125-d600e44 - 0.23.0-canary-20250122-166c2cb || 1.0.0-canary-20240927-ab8a962 - 1.0.0-canary-20250305-0af9ad2",
+          "fixAvailable": true
+        },
+        {
+          "name": "@expo/devcert",
+          "severity": "low",
+          "title": "@expo/devcert",
+          "url": "",
+          "range": "<=1.1.4",
+          "fixAvailable": true
+        },
+        {
+          "name": "@expo/image-utils",
+          "severity": "high",
+          "title": "@expo/image-utils",
+          "url": "",
+          "range": "<=0.0.1-canary-20240109-93608d8 || 0.3.10-alpha.0 - 0.4.2",
+          "fixAvailable": true
+        },
+        {
+          "name": "@expo/prebuild-config",
+          "severity": "high",
+          "title": "@expo/prebuild-config",
+          "url": "",
+          "range": "<=7.0.0-beta.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "@react-native-community/cli",
+          "severity": "high",
+          "title": "@react-native-community/cli",
+          "url": "",
+          "range": "4.13.0 - 9.3.5 || 11.0.2 - 11.4.0 || 12.0.0-alpha.0 - 12.3.5 || 13.0.0 - 13.5.2",
+          "fixAvailable": true
+        },
+        {
+          "name": "@react-native-community/cli-doctor",
+          "severity": "high",
+          "title": "@react-native-community/cli-doctor",
+          "url": "",
+          "range": "<=10.2.5 || 11.0.0-alpha.0 - 11.4.0 || 12.0.0-alpha.0 - 12.3.5 || 13.0.0 - 13.5.2",
+          "fixAvailable": true
+        },
+        {
+          "name": "@react-native-community/cli-hermes",
+          "severity": "high",
+          "title": "@react-native-community/cli-hermes",
+          "url": "",
+          "range": "<=10.2.0 || 11.0.0-alpha.0 - 11.4.0 || 12.0.0-alpha.0 - 12.3.5 || 13.0.0 - 13.5.2",
+          "fixAvailable": true
+        },
+        {
+          "name": "body-parser",
+          "severity": "high",
+          "title": "body-parser",
+          "url": "",
+          "range": "<=1.20.3 || 2.0.0-beta.1 - 2.0.2",
+          "fixAvailable": true
+        },
+        {
+          "name": "brace-expansion",
+          "severity": "low",
+          "title": "brace-expansion",
+          "url": "",
+          "range": "1.0.0 - 1.1.11 || 2.0.0 - 2.0.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "braces",
+          "severity": "high",
+          "title": "braces",
+          "url": "",
+          "range": "<3.0.3",
+          "fixAvailable": true
+        },
+        {
+          "name": "cacache",
+          "severity": "high",
+          "title": "cacache",
+          "url": "",
+          "range": "14.0.0 - 18.0.4",
+          "fixAvailable": true
+        },
+        {
+          "name": "compression",
+          "severity": "low",
+          "title": "compression",
+          "url": "",
+          "range": "1.0.3 - 1.8.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "cross-spawn",
+          "severity": "high",
+          "title": "cross-spawn",
+          "url": "",
+          "range": "<6.0.6 || >=7.0.0 <7.0.5",
+          "fixAvailable": true
+        },
+        {
+          "name": "expo",
+          "severity": "low",
+          "title": "expo",
+          "url": "",
+          "range": "46.0.0-alpha.0 - 52.0.4",
+          "fixAvailable": true
+        },
+        {
+          "name": "fast-xml-parser",
+          "severity": "critical",
+          "title": "fast-xml-parser",
+          "url": "",
+          "range": "4.0.0-beta.0 - 5.5.6",
+          "fixAvailable": true
+        },
+        {
+          "name": "form-data",
+          "severity": "critical",
+          "title": "form-data",
+          "url": "",
+          "range": "3.0.0 - 3.0.3",
+          "fixAvailable": true
+        },
+        {
+          "name": "ip",
+          "severity": "high",
+          "title": "ip",
+          "url": "",
+          "range": "*",
+          "fixAvailable": true
+        },
+        {
+          "name": "js-yaml",
+          "severity": "moderate",
+          "title": "js-yaml",
+          "url": "",
+          "range": "<3.14.2 || >=4.0.0 <4.1.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "lodash",
+          "severity": "moderate",
+          "title": "lodash",
+          "url": "",
+          "range": "4.0.0 - 4.17.21",
+          "fixAvailable": true
+        },
+        {
+          "name": "micromatch",
+          "severity": "moderate",
+          "title": "micromatch",
+          "url": "",
+          "range": "<4.0.8",
+          "fixAvailable": true
+        },
+        {
+          "name": "minimatch",
+          "severity": "high",
+          "title": "minimatch",
+          "url": "",
+          "range": "<=3.1.3 || 5.0.0 - 5.1.7",
+          "fixAvailable": true
+        },
+        {
+          "name": "nanoid",
+          "severity": "moderate",
+          "title": "nanoid",
+          "url": "",
+          "range": "<3.3.8",
+          "fixAvailable": true
+        },
+        {
+          "name": "node-forge",
+          "severity": "high",
+          "title": "node-forge",
+          "url": "",
+          "range": "<=1.3.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "on-headers",
+          "severity": "low",
+          "title": "on-headers",
+          "url": "",
+          "range": "<1.1.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "qs",
+          "severity": "moderate",
+          "title": "qs",
+          "url": "",
+          "range": "<=6.14.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "react-native",
+          "severity": "high",
+          "title": "react-native",
+          "url": "",
+          "range": "<=0.0.0-20221027-2059-ba5454c42 || 0.69.0-rc.0 - 0.70.15 || 0.72.0-rc.0 - 0.72.10 || 0.73.0-nightly-20230506-1af868c52 - 0.73.4 || 0.74.0-nightly-20231003-5dedf277c - 0.74.0-rc.9 || >=0.85.0-nightly-20260108-1236b6be4",
+          "fixAvailable": true
+        },
+        {
+          "name": "semver",
+          "severity": "high",
+          "title": "semver",
+          "url": "",
+          "range": "7.0.0 - 7.5.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "send",
+          "severity": "low",
+          "title": "send",
+          "url": "",
+          "range": "<0.19.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "serve-static",
+          "severity": "low",
+          "title": "serve-static",
+          "url": "",
+          "range": "<=1.16.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "tar",
+          "severity": "high",
+          "title": "tar",
+          "url": "",
+          "range": "<=7.5.10",
+          "fixAvailable": true
+        },
+        {
+          "name": "tmp",
+          "severity": "low",
+          "title": "tmp",
+          "url": "",
+          "range": "<=0.2.3",
+          "fixAvailable": true
+        },
+        {
+          "name": "ws",
+          "severity": "high",
+          "title": "ws",
+          "url": "",
+          "range": "6.0.0 - 6.2.2 || 7.0.0 - 7.5.9 || 8.0.0 - 8.17.0",
+          "fixAvailable": true
+        }
+      ],
+      "totalCount": 34,
+      "fixableCount": 34,
+      "bySeverity": {
+        "info": 0,
+        "low": 8,
+        "moderate": 7,
+        "high": 17,
+        "critical": 2
+      }
+    },
+    "fix": {
+      "project": {
+        "name": "rn-todo-app",
+        "path": "C:\\Users\\Acer\\arbxz\\rn-todo-app",
+        "packageManager": "npm",
+        "hasGit": true
+      },
+      "applied": true,
+      "fixedCount": 34,
+      "remainingCount": 0
+    },
+    "build": {
+      "project": {
+        "name": "rn-todo-app",
+        "path": "C:\\Users\\Acer\\arbxz\\rn-todo-app",
+        "packageManager": "npm",
+        "hasGit": true
+      },
+      "success": false,
+      "output": "",
+      "error": "npm error Missing script: \"build\"\nnpm error\nnpm error To see a list of scripts, run:\nnpm error   npm run\nnpm error A complete log of this run can be found in: C:\\Users\\Acer\\AppData\\Local\\npm-cache\\_logs\\2026-03-23T11_39_32_042Z-debug-0.log"
+    },
+    "reverted": true,
+    "timestamp": "2026-03-23T11:38:26.465Z"
+  },
+  {
+    "project": {
+      "name": "rn-game-app",
+      "path": "C:\\Users\\Acer\\arbxz\\rn-game-app",
+      "packageManager": "npm",
+      "hasGit": true
+    },
+    "audit": {
+      "project": {
+        "name": "rn-game-app",
+        "path": "C:\\Users\\Acer\\arbxz\\rn-game-app",
+        "packageManager": "npm",
+        "hasGit": true
+      },
+      "vulnerabilities": [
+        {
+          "name": "@babel/helpers",
+          "severity": "moderate",
+          "title": "@babel/helpers",
+          "url": "",
+          "range": "<7.26.10",
+          "fixAvailable": true
+        },
+        {
+          "name": "@babel/runtime",
+          "severity": "moderate",
+          "title": "@babel/runtime",
+          "url": "",
+          "range": "<7.26.10",
+          "fixAvailable": true
+        },
+        {
+          "name": "@expo/cli",
+          "severity": "high",
+          "title": "@expo/cli",
+          "url": "",
+          "range": "<=0.0.0-canary-20231123-1b19f96-4 || 0.0.1-canary-20231125-d600e44 - 0.23.0-canary-20250122-166c2cb || 1.0.0-canary-20240927-ab8a962 - 1.0.0-canary-20250305-0af9ad2",
+          "fixAvailable": true
+        },
+        {
+          "name": "@expo/devcert",
+          "severity": "low",
+          "title": "@expo/devcert",
+          "url": "",
+          "range": "<=1.1.4",
+          "fixAvailable": true
+        },
+        {
+          "name": "@expo/image-utils",
+          "severity": "high",
+          "title": "@expo/image-utils",
+          "url": "",
+          "range": "<=0.0.1-canary-20240109-93608d8 || 0.3.10-alpha.0 - 0.4.2",
+          "fixAvailable": true
+        },
+        {
+          "name": "@expo/prebuild-config",
+          "severity": "high",
+          "title": "@expo/prebuild-config",
+          "url": "",
+          "range": "<=7.0.0-beta.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "@react-native-community/cli",
+          "severity": "high",
+          "title": "@react-native-community/cli",
+          "url": "",
+          "range": "4.13.0 - 9.3.5 || 11.0.2 - 11.4.0 || 12.0.0-alpha.0 - 12.3.5 || 13.0.0 - 13.5.2",
+          "fixAvailable": true
+        },
+        {
+          "name": "@react-native-community/cli-doctor",
+          "severity": "high",
+          "title": "@react-native-community/cli-doctor",
+          "url": "",
+          "range": "<=10.2.5 || 11.0.0-alpha.0 - 11.4.0 || 12.0.0-alpha.0 - 12.3.5 || 13.0.0 - 13.5.2",
+          "fixAvailable": true
+        },
+        {
+          "name": "@react-native-community/cli-hermes",
+          "severity": "high",
+          "title": "@react-native-community/cli-hermes",
+          "url": "",
+          "range": "<=10.2.0 || 11.0.0-alpha.0 - 11.4.0 || 12.0.0-alpha.0 - 12.3.5 || 13.0.0 - 13.5.2",
+          "fixAvailable": true
+        },
+        {
+          "name": "body-parser",
+          "severity": "high",
+          "title": "body-parser",
+          "url": "",
+          "range": "<=1.20.3 || 2.0.0-beta.1 - 2.0.2",
+          "fixAvailable": true
+        },
+        {
+          "name": "brace-expansion",
+          "severity": "low",
+          "title": "brace-expansion",
+          "url": "",
+          "range": "1.0.0 - 1.1.11 || 2.0.0 - 2.0.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "braces",
+          "severity": "high",
+          "title": "braces",
+          "url": "",
+          "range": "<3.0.3",
+          "fixAvailable": true
+        },
+        {
+          "name": "cacache",
+          "severity": "high",
+          "title": "cacache",
+          "url": "",
+          "range": "14.0.0 - 18.0.4",
+          "fixAvailable": true
+        },
+        {
+          "name": "compression",
+          "severity": "low",
+          "title": "compression",
+          "url": "",
+          "range": "1.0.3 - 1.8.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "cross-spawn",
+          "severity": "high",
+          "title": "cross-spawn",
+          "url": "",
+          "range": "<6.0.6 || >=7.0.0 <7.0.5",
+          "fixAvailable": true
+        },
+        {
+          "name": "expo",
+          "severity": "low",
+          "title": "expo",
+          "url": "",
+          "range": "46.0.0-alpha.0 - 52.0.4",
+          "fixAvailable": true
+        },
+        {
+          "name": "fast-xml-parser",
+          "severity": "critical",
+          "title": "fast-xml-parser",
+          "url": "",
+          "range": "4.0.0-beta.0 - 5.5.6",
+          "fixAvailable": true
+        },
+        {
+          "name": "form-data",
+          "severity": "critical",
+          "title": "form-data",
+          "url": "",
+          "range": "3.0.0 - 3.0.3",
+          "fixAvailable": true
+        },
+        {
+          "name": "ip",
+          "severity": "high",
+          "title": "ip",
+          "url": "",
+          "range": "*",
+          "fixAvailable": true
+        },
+        {
+          "name": "js-yaml",
+          "severity": "moderate",
+          "title": "js-yaml",
+          "url": "",
+          "range": "<3.14.2 || >=4.0.0 <4.1.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "lodash",
+          "severity": "moderate",
+          "title": "lodash",
+          "url": "",
+          "range": "4.0.0 - 4.17.21",
+          "fixAvailable": true
+        },
+        {
+          "name": "micromatch",
+          "severity": "moderate",
+          "title": "micromatch",
+          "url": "",
+          "range": "<4.0.8",
+          "fixAvailable": true
+        },
+        {
+          "name": "minimatch",
+          "severity": "high",
+          "title": "minimatch",
+          "url": "",
+          "range": "<=3.1.3 || 5.0.0 - 5.1.7",
+          "fixAvailable": true
+        },
+        {
+          "name": "nanoid",
+          "severity": "moderate",
+          "title": "nanoid",
+          "url": "",
+          "range": "<3.3.8",
+          "fixAvailable": true
+        },
+        {
+          "name": "node-forge",
+          "severity": "high",
+          "title": "node-forge",
+          "url": "",
+          "range": "<=1.3.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "on-headers",
+          "severity": "low",
+          "title": "on-headers",
+          "url": "",
+          "range": "<1.1.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "qs",
+          "severity": "moderate",
+          "title": "qs",
+          "url": "",
+          "range": "<=6.14.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "react-native",
+          "severity": "high",
+          "title": "react-native",
+          "url": "",
+          "range": "<=0.0.0-ffdfbbec0 || 0.64.0-rc.0 - 0.70.15 || 0.72.0-rc.0 - 0.72.10 || 0.73.0-nightly-20230506-1af868c52 - 0.73.4 || 0.74.0-nightly-20231003-5dedf277c - 0.74.0-rc.9 || >=0.85.0-nightly-20260108-1236b6be4",
+          "fixAvailable": true
+        },
+        {
+          "name": "semver",
+          "severity": "high",
+          "title": "semver",
+          "url": "",
+          "range": "7.0.0 - 7.5.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "send",
+          "severity": "low",
+          "title": "send",
+          "url": "",
+          "range": "<0.19.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "serve-static",
+          "severity": "low",
+          "title": "serve-static",
+          "url": "",
+          "range": "<=1.16.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "tar",
+          "severity": "high",
+          "title": "tar",
+          "url": "",
+          "range": "<=7.5.10",
+          "fixAvailable": true
+        },
+        {
+          "name": "tmp",
+          "severity": "low",
+          "title": "tmp",
+          "url": "",
+          "range": "<=0.2.3",
+          "fixAvailable": true
+        },
+        {
+          "name": "ws",
+          "severity": "high",
+          "title": "ws",
+          "url": "",
+          "range": "6.0.0 - 6.2.2 || 7.0.0 - 7.5.9 || 8.0.0 - 8.17.0",
+          "fixAvailable": true
+        }
+      ],
+      "totalCount": 34,
+      "fixableCount": 34,
+      "bySeverity": {
+        "info": 0,
+        "low": 8,
+        "moderate": 7,
+        "high": 17,
+        "critical": 2
+      }
+    },
+    "fix": {
+      "project": {
+        "name": "rn-game-app",
+        "path": "C:\\Users\\Acer\\arbxz\\rn-game-app",
+        "packageManager": "npm",
+        "hasGit": true
+      },
+      "applied": true,
+      "fixedCount": 34,
+      "remainingCount": 0
+    },
+    "build": {
+      "project": {
+        "name": "rn-game-app",
+        "path": "C:\\Users\\Acer\\arbxz\\rn-game-app",
+        "packageManager": "npm",
+        "hasGit": true
+      },
+      "success": false,
+      "output": "",
+      "error": "npm error Missing script: \"build\"\nnpm error\nnpm error To see a list of scripts, run:\nnpm error   npm run\nnpm error A complete log of this run can be found in: C:\\Users\\Acer\\AppData\\Local\\npm-cache\\_logs\\2026-03-23T11_39_54_865Z-debug-0.log"
+    },
+    "reverted": true,
+    "timestamp": "2026-03-23T11:39:32.507Z"
+  },
+  {
+    "project": {
+      "name": "socket-messaging-app",
+      "path": "C:\\Users\\Acer\\arbxz\\socket-messaging-app",
+      "packageManager": "npm",
+      "hasGit": true
+    },
+    "audit": {
+      "project": {
+        "name": "socket-messaging-app",
+        "path": "C:\\Users\\Acer\\arbxz\\socket-messaging-app",
+        "packageManager": "npm",
+        "hasGit": true
+      },
+      "vulnerabilities": [
+        {
+          "name": "socket.io-parser",
+          "severity": "high",
+          "title": "socket.io-parser",
+          "url": "",
+          "range": "4.0.0 - 4.2.5",
+          "fixAvailable": true
+        }
+      ],
+      "totalCount": 1,
+      "fixableCount": 1,
+      "bySeverity": {
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 1,
+        "critical": 0
+      }
+    },
+    "fix": {
+      "project": {
+        "name": "socket-messaging-app",
+        "path": "C:\\Users\\Acer\\arbxz\\socket-messaging-app",
+        "packageManager": "npm",
+        "hasGit": true
+      },
+      "applied": true,
+      "fixedCount": 1,
+      "remainingCount": 0
+    },
+    "build": {
+      "project": {
+        "name": "socket-messaging-app",
+        "path": "C:\\Users\\Acer\\arbxz\\socket-messaging-app",
+        "packageManager": "npm",
+        "hasGit": true
+      },
+      "success": false,
+      "output": "",
+      "error": "npm error Missing script: \"build\"\nnpm error\nnpm error To see a list of scripts, run:\nnpm error   npm run\nnpm error A complete log of this run can be found in: C:\\Users\\Acer\\AppData\\Local\\npm-cache\\_logs\\2026-03-23T11_40_01_836Z-debug-0.log"
+    },
+    "reverted": true,
+    "timestamp": "2026-03-23T11:39:55.453Z"
+  },
+  {
+    "project": {
+      "name": "pokemon-rogue-battle",
+      "path": "C:\\Users\\Acer\\arbxz\\pokerogue-gamepad",
+      "packageManager": "npm",
+      "hasGit": true
+    },
+    "audit": {
+      "project": {
+        "name": "pokemon-rogue-battle",
+        "path": "C:\\Users\\Acer\\arbxz\\pokerogue-gamepad",
+        "packageManager": "npm",
+        "hasGit": true
+      },
+      "vulnerabilities": [
+        {
+          "name": "@babel/helpers",
+          "severity": "moderate",
+          "title": "@babel/helpers",
+          "url": "",
+          "range": "<7.26.10",
+          "fixAvailable": true
+        },
+        {
+          "name": "@babel/runtime",
+          "severity": "moderate",
+          "title": "@babel/runtime",
+          "url": "",
+          "range": "<7.26.10",
+          "fixAvailable": true
+        },
+        {
+          "name": "@vitest/coverage-istanbul",
+          "severity": "critical",
+          "title": "@vitest/coverage-istanbul",
+          "url": "",
+          "range": "2.0.0-beta.1 - 2.1.8",
+          "fixAvailable": true
+        },
+        {
+          "name": "ajv",
+          "severity": "moderate",
+          "title": "ajv",
+          "url": "",
+          "range": "<6.14.0 || >=7.0.0-alpha.0 <8.18.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "brace-expansion",
+          "severity": "low",
+          "title": "brace-expansion",
+          "url": "",
+          "range": "1.0.0 - 1.1.11 || 2.0.0 - 2.0.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "cross-spawn",
+          "severity": "high",
+          "title": "cross-spawn",
+          "url": "",
+          "range": "7.0.0 - 7.0.4",
+          "fixAvailable": true
+        },
+        {
+          "name": "dependency-cruiser",
+          "severity": "moderate",
+          "title": "dependency-cruiser",
+          "url": "",
+          "range": "9.21.0 - 16.3.10 || 17.3.1 - 17.3.3-beta-1",
+          "fixAvailable": true
+        },
+        {
+          "name": "esbuild",
+          "severity": "moderate",
+          "title": "esbuild",
+          "url": "",
+          "range": "<=0.24.2",
+          "fixAvailable": true
+        },
+        {
+          "name": "flatted",
+          "severity": "high",
+          "title": "flatted",
+          "url": "",
+          "range": "<=3.4.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "form-data",
+          "severity": "critical",
+          "title": "form-data",
+          "url": "",
+          "range": "4.0.0 - 4.0.3",
+          "fixAvailable": true
+        },
+        {
+          "name": "glob",
+          "severity": "high",
+          "title": "glob",
+          "url": "",
+          "range": "10.2.0 - 10.4.5",
+          "fixAvailable": true
+        },
+        {
+          "name": "js-yaml",
+          "severity": "moderate",
+          "title": "js-yaml",
+          "url": "",
+          "range": "4.0.0 - 4.1.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "markdown-it",
+          "severity": "moderate",
+          "title": "markdown-it",
+          "url": "",
+          "range": "13.0.0 - 14.1.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "micromatch",
+          "severity": "moderate",
+          "title": "micromatch",
+          "url": "",
+          "range": "<4.0.8",
+          "fixAvailable": true
+        },
+        {
+          "name": "minimatch",
+          "severity": "high",
+          "title": "minimatch",
+          "url": "",
+          "range": "<=3.1.3 || 9.0.0 - 9.0.6",
+          "fixAvailable": true
+        },
+        {
+          "name": "nanoid",
+          "severity": "moderate",
+          "title": "nanoid",
+          "url": "",
+          "range": "<3.3.8",
+          "fixAvailable": true
+        },
+        {
+          "name": "rollup",
+          "severity": "high",
+          "title": "rollup",
+          "url": "",
+          "range": "4.0.0 - 4.58.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "vite",
+          "severity": "moderate",
+          "title": "vite",
+          "url": "",
+          "range": "<=6.1.6",
+          "fixAvailable": true
+        },
+        {
+          "name": "vitest",
+          "severity": "critical",
+          "title": "vitest",
+          "url": "",
+          "range": "2.0.0 - 2.1.8",
+          "fixAvailable": true
+        }
+      ],
+      "totalCount": 19,
+      "fixableCount": 19,
+      "bySeverity": {
+        "info": 0,
+        "low": 1,
+        "moderate": 10,
+        "high": 5,
+        "critical": 3
+      }
+    },
+    "fix": {
+      "project": {
+        "name": "pokemon-rogue-battle",
+        "path": "C:\\Users\\Acer\\arbxz\\pokerogue-gamepad",
+        "packageManager": "npm",
+        "hasGit": true
+      },
+      "applied": true,
+      "fixedCount": 19,
+      "remainingCount": 0
+    },
+    "build": {
+      "project": {
+        "name": "pokemon-rogue-battle",
+        "path": "C:\\Users\\Acer\\arbxz\\pokerogue-gamepad",
+        "packageManager": "npm",
+        "hasGit": true
+      },
+      "success": true,
+      "output": "\n> pokemon-rogue-battle@1.0.4 build\n> vite build\n\n\u001b[36mvite v5.4.21 \u001b[32mbuilding for production...\u001b[36m\u001b[39m\ntransforming...\n\u001b[32m✓\u001b[39m 2516 modules transformed.\nrendering chunks...\ncomputing gzip size...\n\u001b[2mdist/\u001b[22m\u001b[32mindex.html                 \u001b[39m\u001b[1m\u001b[2m    7.78 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:     2.27 kB\u001b[22m\n\u001b[2mdist/\u001b[22m\u001b[35massets/index-BgdWDCRR.css  \u001b[39m\u001b[1m\u001b[2m    7.13 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:     1.79 kB\u001b[22m\n\u001b[2mdist/\u001b[22m\u001b[36massets/index-CjWLIoVf.js   \u001b[39m\u001b[1m\u001b[33m9,387.70 kB\u001b[39m\u001b[22m\u001b[2m │ gzip: 2,711.94 kB\u001b[22m\n\u001b[32m✓ built in 52.56s\u001b[39m\nMinifying JSON files...\nFinished minifying JSON files!"
+    },
+    "reverted": false,
+    "timestamp": "2026-03-23T11:40:02.323Z"
+  },
+  {
+    "project": {
+      "name": "react-i18next-nexus",
+      "path": "C:\\Users\\Acer\\arbxz\\react-i18next-nexus",
+      "packageManager": "npm",
+      "hasGit": true
+    },
+    "audit": {
+      "project": {
+        "name": "react-i18next-nexus",
+        "path": "C:\\Users\\Acer\\arbxz\\react-i18next-nexus",
+        "packageManager": "npm",
+        "hasGit": true
+      },
+      "vulnerabilities": [
+        {
+          "name": "@babel/helpers",
+          "severity": "moderate",
+          "title": "@babel/helpers",
+          "url": "",
+          "range": "<7.26.10",
+          "fixAvailable": true
+        },
+        {
+          "name": "@babel/runtime",
+          "severity": "moderate",
+          "title": "@babel/runtime",
+          "url": "",
+          "range": "<7.26.10",
+          "fixAvailable": true
+        },
+        {
+          "name": "@jest/core",
+          "severity": "low",
+          "title": "@jest/core",
+          "url": "",
+          "range": "27.0.1 - 27.5.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "@svgr/plugin-svgo",
+          "severity": "high",
+          "title": "@svgr/plugin-svgo",
+          "url": "",
+          "range": "<=5.5.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "@svgr/webpack",
+          "severity": "high",
+          "title": "@svgr/webpack",
+          "url": "",
+          "range": "4.0.0 - 5.5.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "@tootallnate/once",
+          "severity": "low",
+          "title": "@tootallnate/once",
+          "url": "",
+          "range": "<3.0.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "ajv",
+          "severity": "moderate",
+          "title": "ajv",
+          "url": "",
+          "range": "<6.14.0 || >=7.0.0-alpha.0 <8.18.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "body-parser",
+          "severity": "low",
+          "title": "body-parser",
+          "url": "",
+          "range": "1.19.0 - 1.20.3 || 2.0.0-beta.1 - 2.0.2",
+          "fixAvailable": true
+        },
+        {
+          "name": "brace-expansion",
+          "severity": "low",
+          "title": "brace-expansion",
+          "url": "",
+          "range": "1.0.0 - 1.1.11 || 2.0.0 - 2.0.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "compression",
+          "severity": "low",
+          "title": "compression",
+          "url": "",
+          "range": "1.0.3 - 1.8.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "cookie",
+          "severity": "low",
+          "title": "cookie",
+          "url": "",
+          "range": "<0.7.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "cross-spawn",
+          "severity": "high",
+          "title": "cross-spawn",
+          "url": "",
+          "range": "7.0.0 - 7.0.4",
+          "fixAvailable": true
+        },
+        {
+          "name": "css-minimizer-webpack-plugin",
+          "severity": "high",
+          "title": "css-minimizer-webpack-plugin",
+          "url": "",
+          "range": "<=7.0.4",
+          "fixAvailable": true
+        },
+        {
+          "name": "css-select",
+          "severity": "high",
+          "title": "css-select",
+          "url": "",
+          "range": "<=3.1.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "express",
+          "severity": "high",
+          "title": "express",
+          "url": "",
+          "range": "3.0.0-alpha1 - 4.21.2 || 5.0.0-alpha.1 - 5.0.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "flatted",
+          "severity": "high",
+          "title": "flatted",
+          "url": "",
+          "range": "<=3.4.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "form-data",
+          "severity": "critical",
+          "title": "form-data",
+          "url": "",
+          "range": "3.0.0 - 3.0.3",
+          "fixAvailable": true
+        },
+        {
+          "name": "glob",
+          "severity": "high",
+          "title": "glob",
+          "url": "",
+          "range": "10.2.0 - 10.4.5",
+          "fixAvailable": true
+        },
+        {
+          "name": "http-proxy-agent",
+          "severity": "low",
+          "title": "http-proxy-agent",
+          "url": "",
+          "range": "4.0.1 - 5.0.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "http-proxy-middleware",
+          "severity": "high",
+          "title": "http-proxy-middleware",
+          "url": "",
+          "range": "<=2.0.8",
+          "fixAvailable": true
+        },
+        {
+          "name": "jest",
+          "severity": "low",
+          "title": "jest",
+          "url": "",
+          "range": "27.0.1 - 27.5.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "jest-cli",
+          "severity": "low",
+          "title": "jest-cli",
+          "url": "",
+          "range": "27.0.1 - 27.5.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "jest-config",
+          "severity": "low",
+          "title": "jest-config",
+          "url": "",
+          "range": "27.0.1 - 27.5.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "jest-environment-jsdom",
+          "severity": "low",
+          "title": "jest-environment-jsdom",
+          "url": "",
+          "range": "27.0.1 - 30.0.0-rc.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "jest-runner",
+          "severity": "low",
+          "title": "jest-runner",
+          "url": "",
+          "range": "27.0.4 - 27.5.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "js-yaml",
+          "severity": "moderate",
+          "title": "js-yaml",
+          "url": "",
+          "range": "<3.14.2 || >=4.0.0 <4.1.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "jsdom",
+          "severity": "low",
+          "title": "jsdom",
+          "url": "",
+          "range": "16.6.0 - 22.1.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "jsonpath",
+          "severity": "high",
+          "title": "jsonpath",
+          "url": "",
+          "range": "*",
+          "fixAvailable": true
+        },
+        {
+          "name": "lodash",
+          "severity": "moderate",
+          "title": "lodash",
+          "url": "",
+          "range": "4.0.0 - 4.17.21",
+          "fixAvailable": true
+        },
+        {
+          "name": "minimatch",
+          "severity": "high",
+          "title": "minimatch",
+          "url": "",
+          "range": "<=3.1.3 || 5.0.0 - 5.1.7 || 9.0.0 - 9.0.6",
+          "fixAvailable": true
+        },
+        {
+          "name": "nanoid",
+          "severity": "moderate",
+          "title": "nanoid",
+          "url": "",
+          "range": "<3.3.8",
+          "fixAvailable": true
+        },
+        {
+          "name": "node-forge",
+          "severity": "high",
+          "title": "node-forge",
+          "url": "",
+          "range": "<=1.3.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "nth-check",
+          "severity": "high",
+          "title": "nth-check",
+          "url": "",
+          "range": "<2.0.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "on-headers",
+          "severity": "low",
+          "title": "on-headers",
+          "url": "",
+          "range": "<1.1.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "path-to-regexp",
+          "severity": "high",
+          "title": "path-to-regexp",
+          "url": "",
+          "range": "<0.1.12",
+          "fixAvailable": true
+        },
+        {
+          "name": "postcss",
+          "severity": "moderate",
+          "title": "postcss",
+          "url": "",
+          "range": "<8.4.31",
+          "fixAvailable": true
+        },
+        {
+          "name": "qs",
+          "severity": "moderate",
+          "title": "qs",
+          "url": "",
+          "range": "<=6.14.1",
+          "fixAvailable": true
+        },
+        {
+          "name": "react-scripts",
+          "severity": "high",
+          "title": "react-scripts",
+          "url": "",
+          "range": ">=0.1.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "resolve-url-loader",
+          "severity": "moderate",
+          "title": "resolve-url-loader",
+          "url": "",
+          "range": "0.0.1-experiment-postcss || 3.0.0-alpha.1 - 4.0.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "rollup",
+          "severity": "high",
+          "title": "rollup",
+          "url": "",
+          "range": "<=2.79.2",
+          "fixAvailable": true
+        },
+        {
+          "name": "rollup-plugin-terser",
+          "severity": "high",
+          "title": "rollup-plugin-terser",
+          "url": "",
+          "range": "3.0.0 || >=4.0.4",
+          "fixAvailable": true
+        },
+        {
+          "name": "serialize-javascript",
+          "severity": "high",
+          "title": "serialize-javascript",
+          "url": "",
+          "range": "<=7.0.2",
+          "fixAvailable": true
+        },
+        {
+          "name": "svgo",
+          "severity": "high",
+          "title": "svgo",
+          "url": "",
+          "range": "1.0.0 - 1.3.2 || 2.1.0 - 2.8.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "terser-webpack-plugin",
+          "severity": "high",
+          "title": "terser-webpack-plugin",
+          "url": "",
+          "range": "<=5.3.16",
+          "fixAvailable": true
+        },
+        {
+          "name": "underscore",
+          "severity": "high",
+          "title": "underscore",
+          "url": "",
+          "range": "<=1.13.7",
+          "fixAvailable": true
+        },
+        {
+          "name": "webpack",
+          "severity": "low",
+          "title": "webpack",
+          "url": "",
+          "range": "5.49.0 - 5.104.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "webpack-dev-server",
+          "severity": "moderate",
+          "title": "webpack-dev-server",
+          "url": "",
+          "range": "<=5.2.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "workbox-build",
+          "severity": "high",
+          "title": "workbox-build",
+          "url": "",
+          "range": "5.0.0-alpha.0 - 7.0.0",
+          "fixAvailable": true
+        },
+        {
+          "name": "workbox-webpack-plugin",
+          "severity": "high",
+          "title": "workbox-webpack-plugin",
+          "url": "",
+          "range": "5.0.0-alpha.0 - 7.0.0",
+          "fixAvailable": true
+        }
+      ],
+      "totalCount": 49,
+      "fixableCount": 49,
+      "bySeverity": {
+        "info": 0,
+        "low": 15,
+        "moderate": 10,
+        "high": 23,
+        "critical": 1
+      }
+    },
+    "fix": {
+      "project": {
+        "name": "react-i18next-nexus",
+        "path": "C:\\Users\\Acer\\arbxz\\react-i18next-nexus",
+        "packageManager": "npm",
+        "hasGit": true
+      },
+      "applied": true,
+      "fixedCount": 49,
+      "remainingCount": 0
+    },
+    "build": {
+      "project": {
+        "name": "react-i18next-nexus",
+        "path": "C:\\Users\\Acer\\arbxz\\react-i18next-nexus",
+        "packageManager": "npm",
+        "hasGit": true
+      },
+      "success": true,
+      "output": "\n> react-i18next-nexus@0.1.0 build\n> react-scripts build\n\nCreating an optimized production build...\nCompiled successfully.\n\nFile sizes after gzip:\n\n  61.78 kB  build\\static\\js\\main.30e4fadf.js\n  513 B     build\\static\\css\\main.f855e6bc.css\n\nThe project was built assuming it is hosted at /.\nYou can control this with the homepage field in your package.json.\n\nThe build folder is ready to be deployed.\nYou may serve it with a static server:\n\n  npm install -g serve\n  serve -s build\n\nFind out more about deployment here:\n\n  https://cra.link/deployment\n"
+    },
+    "reverted": false,
+    "timestamp": "2026-03-23T11:41:49.117Z"
+  },
+  {
+    "project": {
+      "name": "wordle-with-friends",
+      "path": "C:\\Users\\Acer\\arbxz\\wordle-with-friends",
+      "packageManager": "npm",
+      "hasGit": true
+    },
+    "audit": {
+      "project": {
+        "name": "wordle-with-friends",
+        "path": "C:\\Users\\Acer\\arbxz\\wordle-with-friends",
+        "packageManager": "npm",
+        "hasGit": true
+      },
+      "vulnerabilities": [],
+      "totalCount": 0,
+      "fixableCount": 0,
+      "bySeverity": {
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0
+      }
+    },
+    "reverted": false,
+    "timestamp": "2026-03-23T11:42:42.336Z"
+  }
+]
