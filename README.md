@@ -17,10 +17,10 @@ A CLI tool that periodically audits, fixes, and verifies npm/pnpm/yarn projects 
 
 ```bash
 # Install dependencies
-npm install
+pnpm install
 
 # Build
-npm run build
+pnpm run build
 
 # Initialize a config file
 node dist/index.js init
