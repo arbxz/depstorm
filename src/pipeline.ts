@@ -13,11 +13,14 @@ import {
   createFixBranch,
   getCurrentBranch,
   getSourceBranch,
+  mergeBranch,
   pullSourceBranch,
+  pushBranch,
   revertChanges,
   switchBack,
 } from "./git.js";
 import { printSummary, saveHtmlReport, saveJsonReport } from "./report.js";
+import { runSonarCheck } from "./sonar.js";
 
 /**
  * Run the full audit → fix → verify → report pipeline for a list of projects
@@ -57,10 +60,16 @@ async function processProject(
   // Step 1: Audit
   const auditResult = await runAudit(project);
 
+  // Step 1b: SonarJS code quality check
+  const sonarResult = config.sonarCheck
+    ? await runSonarCheck(project)
+    : undefined;
+
   if (auditResult.totalCount === 0) {
     return {
       project,
       audit: auditResult,
+      sonar: sonarResult,
       reverted: false,
       timestamp,
     };
@@ -72,6 +81,7 @@ async function processProject(
     return {
       project,
       audit: auditResult,
+      sonar: sonarResult,
       reverted: false,
       timestamp,
     };
@@ -131,6 +141,7 @@ async function processProject(
     return {
       project,
       audit: auditResult,
+      sonar: sonarResult,
       fix: fixResult,
       reverted: false,
       timestamp,
@@ -158,11 +169,44 @@ async function processProject(
   }
 
   // Step 4: Commit (if build passed & git enabled)
+  let fixBranchName: string | undefined;
   if (config.gitCommit && project.hasGit && fixResult.applied && !reverted) {
     try {
       await commitFixes(project, fixResult.fixedCount);
+
+      // Step 5: Push fix branch to origin (if enabled)
+      if (config.gitPush) {
+        fixBranchName = await getCurrentBranch(project);
+        await pushBranch(project, fixBranchName);
+      }
     } catch {
       consola.warn(`${project.name}: Failed to commit fixes`);
+    }
+  }
+
+  // Step 6: Merge fix branch into source branch (if enabled)
+  const sourceBranch = getSourceBranch(project, config);
+  if (
+    config.gitMerge &&
+    project.hasGit &&
+    fixResult.applied &&
+    !reverted &&
+    sourceBranch
+  ) {
+    const branch = fixBranchName ?? (await getCurrentBranch(project));
+    const merged = await mergeBranch(project, branch, sourceBranch);
+    if (merged) {
+      // Already on source branch after merge, no need to switchBack
+      if (backupPath) await cleanupBackup(backupPath);
+      return {
+        project,
+        audit: auditResult,
+        sonar: sonarResult,
+        fix: fixResult,
+        build: buildResult,
+        reverted,
+        timestamp,
+      };
     }
   }
 
@@ -177,6 +221,7 @@ async function processProject(
   return {
     project,
     audit: auditResult,
+    sonar: sonarResult,
     fix: fixResult,
     build: buildResult,
     reverted,

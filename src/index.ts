@@ -4,7 +4,7 @@ import consola from "consola";
 import path from "node:path";
 import { loadConfig, resolveRoots } from "./config.js";
 import { discoverProjects, resolveExplicitProjects } from "./discover.js";
-import { getCurrentBranch, hasBranch, pushBranch } from "./git.js";
+import { getCurrentBranch, hasBranch, mergeBranch, pushBranch } from "./git.js";
 import { runPipeline } from "./pipeline.js";
 import { promptBranchSelection } from "./prompt.js";
 import { scheduleTask } from "./scheduler.js";
@@ -47,6 +47,11 @@ async function interactiveMode() {
         label: "📤  Push — Push fix branches to origin",
         value: "push",
         hint: "Push completed audit-fix branches",
+      },
+      {
+        label: "🔀  Merge — Merge fix branches into main",
+        value: "merge",
+        hint: "Merge completed audit-fix branches into target branch",
       },
       {
         label: "⏰  Schedule — Set up recurring audits",
@@ -121,6 +126,9 @@ async function interactiveMode() {
     case "push":
       await actionPush(projects);
       break;
+    case "merge":
+      await actionMerge(projects);
+      break;
     case "schedule":
       await actionSchedule(projects, config);
       break;
@@ -179,6 +187,20 @@ async function actionRun(projects: ProjectInfo[], config: WizardConfig) {
   })) as unknown as Severity;
   config.severityThreshold = severity;
 
+  // SonarJS code quality check
+  const sonarCheck = (await consola.prompt("Run SonarJS code quality checks?", {
+    type: "select",
+    options: [
+      {
+        label: "Yes — scan source code for bugs & code smells",
+        value: "yes",
+        hint: "recommended",
+      },
+      { label: "No — skip code quality analysis", value: "no" },
+    ],
+  })) as unknown as string;
+  config.sonarCheck = sonarCheck === "yes";
+
   // Auto-fix toggle
   const autoFix = (await consola.prompt("Auto-fix vulnerabilities?", {
     type: "select",
@@ -216,17 +238,29 @@ async function actionRun(projects: ProjectInfo[], config: WizardConfig) {
       type: "select",
       options: [
         {
+          label: "Create branch + commit + push + merge",
+          value: "full-merge",
+          hint: "fully automated",
+        },
+        {
+          label: "Create branch + commit + push",
+          value: "full-push",
+          hint: "push but merge manually",
+        },
+        {
           label: "Create branch + commit fixes",
           value: "full",
-          hint: "recommended",
+          hint: "local only",
         },
         { label: "Commit fixes on current branch", value: "commit-only" },
         { label: "No git operations", value: "none" },
       ],
     })) as unknown as string;
 
-    config.gitBranch = gitMode === "full";
+    config.gitBranch = ["full", "full-push", "full-merge"].includes(gitMode);
     config.gitCommit = gitMode !== "none";
+    config.gitPush = ["full-push", "full-merge"].includes(gitMode);
+    config.gitMerge = gitMode === "full-merge";
 
     if (config.gitBranch) {
       await promptBranchSelection(projects, config);
@@ -252,9 +286,17 @@ async function actionRun(projects: ProjectInfo[], config: WizardConfig) {
   console.log(`    Severity:    ${config.severityThreshold}+`);
   console.log(`    Auto-fix:    ${config.autoFix ? "yes" : "no"}`);
   console.log(`    Build check: ${config.verifyBuild ? "yes" : "no"}`);
-  console.log(
-    `    Git:         ${config.gitBranch ? "branch + commit" : config.gitCommit ? "commit only" : "off"}`,
-  );
+  console.log(`    SonarJS:     ${config.sonarCheck ? "yes" : "no"}`);
+  const gitDesc = config.gitMerge
+    ? "branch + commit + push + merge"
+    : config.gitPush
+      ? "branch + commit + push"
+      : config.gitBranch
+        ? "branch + commit"
+        : config.gitCommit
+          ? "commit only"
+          : "off";
+  console.log(`    Git:         ${gitDesc}`);
   console.log();
 
   const go = (await consola.prompt("Start the pipeline?", {
@@ -351,6 +393,90 @@ async function actionPush(projects: ProjectInfo[]) {
   }
 }
 
+// ── Action: Merge ──────────────────────────────────────────────────────
+async function actionMerge(projects: ProjectInfo[]) {
+  const gitProjects = projects.filter((p) => p.hasGit);
+
+  if (gitProjects.length === 0) {
+    consola.warn("No git projects found.");
+    return;
+  }
+
+  const branchInput = (await consola.prompt("Fix branch to merge:", {
+    type: "text",
+    placeholder: `audit-fix/${new Date().toISOString().slice(0, 10)}`,
+    default: `audit-fix/${new Date().toISOString().slice(0, 10)}`,
+  })) as unknown as string;
+
+  const fixBranchName = branchInput.trim();
+
+  const targetInput = (await consola.prompt("Target branch to merge into:", {
+    type: "text",
+    placeholder: "main",
+    default: "main",
+  })) as unknown as string;
+
+  const targetBranch = targetInput.trim();
+
+  // Find eligible projects
+  const eligible: ProjectInfo[] = [];
+  for (const p of gitProjects) {
+    if (await hasBranch(p, fixBranchName)) {
+      eligible.push(p);
+    }
+  }
+
+  if (eligible.length === 0) {
+    consola.warn(`No projects have branch "${fixBranchName}".`);
+    return;
+  }
+
+  console.log(
+    `\n  Found \x1b[1m${eligible.length}\x1b[0m project(s) with branch "${fixBranchName}":\n`,
+  );
+  for (const p of eligible) {
+    console.log(`    - ${p.name}`);
+  }
+  console.log();
+
+  const selected = (await consola.prompt("Select projects to merge:", {
+    type: "multiselect",
+    options: eligible.map((p) => ({ label: p.name, value: p.name })),
+  })) as unknown as string[];
+
+  const toMerge = eligible.filter((p) => selected.includes(p.name));
+
+  if (toMerge.length === 0) {
+    consola.info("No projects selected.");
+    return;
+  }
+
+  const confirm = (await consola.prompt(
+    `Merge "${fixBranchName}" into "${targetBranch}" for ${toMerge.length} project(s)?`,
+    { type: "confirm", initial: true },
+  )) as unknown as boolean;
+
+  if (!confirm) {
+    consola.info("Cancelled.");
+    return;
+  }
+
+  console.log();
+  let merged = 0;
+  let failed = 0;
+
+  for (const p of toMerge) {
+    if (await mergeBranch(p, fixBranchName, targetBranch)) {
+      merged++;
+    } else {
+      failed++;
+    }
+  }
+
+  console.log();
+  consola.success(`Merged: ${merged}, Failed: ${failed}`);
+}
+
 // ── Action: Schedule ───────────────────────────────────────────────────
 async function actionSchedule(projects: ProjectInfo[], config: WizardConfig) {
   const schedule = (await consola.prompt("How often should audits run?", {
@@ -403,6 +529,8 @@ async function actionInit() {
     revertOnFailure: true,
     gitBranch: true,
     gitCommit: true,
+    gitPush: false,
+    gitMerge: false,
     scanDepth: 3,
     excludeDirs: ["node_modules", ".git", "dist", "build", ".next", ".nuxt"],
     schedule: "0 9 * * 1",
@@ -439,6 +567,8 @@ async function cliMode() {
     .option("--no-fix", "Skip auto-fix")
     .option("--no-build", "Skip build verification")
     .option("--no-git", "Skip git operations")
+    .option("--push", "Auto-push fix branches to origin")
+    .option("--merge", "Auto-merge fix branches into source branch")
     .option("--report <path>", "Report output path")
     .option("-d, --depth <number>", "Max scan depth", parseInt)
     .option("-b, --branch <name>", "Source branch to pull from")
@@ -503,6 +633,68 @@ async function cliMode() {
     });
 
   program
+    .command("merge")
+    .description("Merge fix branches into a target branch")
+    .option("-r, --root <paths...>", "Root directories to scan")
+    .option("-p, --project <paths...>", "Specific project paths")
+    .option("-c, --config <path>", "Path to config file")
+    .option("-d, --depth <number>", "Max scan depth", parseInt)
+    .option("--fix-branch <name>", "Fix branch name")
+    .option("-b, --branch <name>", "Target branch to merge into", "main")
+    .action(async (opts) => {
+      const config = await buildConfig(opts);
+      const projects = await getProjects(config, opts);
+      const gitProjects = projects.filter((p) => p.hasGit);
+      const fixBranchName =
+        (opts.fixBranch as string) ??
+        `audit-fix/${new Date().toISOString().slice(0, 10)}`;
+      const targetBranch = (opts.branch as string) ?? "main";
+
+      const eligible: ProjectInfo[] = [];
+      for (const p of gitProjects) {
+        if (await hasBranch(p, fixBranchName)) eligible.push(p);
+      }
+
+      if (eligible.length === 0) {
+        consola.warn(`No projects have branch "${fixBranchName}".`);
+        return;
+      }
+
+      console.log(
+        `\n  Found \x1b[1m${eligible.length}\x1b[0m project(s) with branch "${fixBranchName}":\n`,
+      );
+      for (const p of eligible) {
+        console.log(`    - ${p.name}`);
+      }
+      console.log();
+
+      const confirm = (await consola.prompt(
+        `Merge "${fixBranchName}" into "${targetBranch}" for ${eligible.length} project(s)?`,
+        { type: "confirm", initial: true },
+      )) as unknown as boolean;
+
+      if (!confirm) {
+        consola.info("Cancelled.");
+        return;
+      }
+
+      let merged = 0;
+      let failed = 0;
+
+      for (const p of eligible) {
+        const success = await mergeBranch(p, fixBranchName, targetBranch);
+        if (success) {
+          merged++;
+        } else {
+          failed++;
+        }
+      }
+
+      console.log();
+      consola.success(`Merged: ${merged}, Failed: ${failed}`);
+    });
+
+  program
     .command("schedule")
     .description("Run on a cron schedule")
     .option("-c, --config <path>", "Path to config file")
@@ -543,6 +735,8 @@ async function buildConfig(
   if (opts.report) config.reportPath = opts.report as string;
   if (opts.depth) config.scanDepth = opts.depth as number;
   if (opts.branch) config.sourceBranch = opts.branch as string;
+  if (opts.push) config.gitPush = true;
+  if (opts.merge) config.gitMerge = true;
   return config;
 }
 

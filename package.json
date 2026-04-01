@@ -27,6 +27,8 @@
     "commander": "^12.1.0",
     "consola": "^3.2.3",
     "cosmiconfig": "^9.0.0",
+    "eslint": "^10.1.0",
+    "eslint-plugin-sonarjs": "^4.0.2",
     "execa": "^9.5.2",
     "node-cron": "^3.0.3",
     "simple-git": "^3.27.0"

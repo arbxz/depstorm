@@ -54,6 +54,8 @@ depstorm run [options]
 | `--no-fix`                 | Skip auto-fix                                           |
 | `--no-build`               | Skip build verification                                 |
 | `--no-git`                 | Skip git branch/commit                                  |
+| `--push`                   | Auto-push fix branches to origin                        |
+| `--merge`                  | Auto-merge fix branches into source branch              |
 | `--report <path>`          | Output report file path                                 |
 | `-d, --depth <number>`     | Max scan depth                                          |
 
@@ -90,6 +92,8 @@ Create a `.depstorm.json` in your working directory:
   "revertOnFailure": true,
   "gitBranch": true,
   "gitCommit": true,
+  "gitPush": false,
+  "gitMerge": false,
   "scanDepth": 3,
   "excludeDirs": ["node_modules", ".git", "dist", "build", ".next", ".nuxt"],
   "schedule": "0 9 * * 1",
@@ -109,6 +113,8 @@ Discover projects
       → Apply audit fix
       → Run build
         → If build passes → commit changes
+          → If push enabled → push branch to origin
+          → If merge enabled → merge into source branch + push
         → If build fails → revert to backup
   → Generate report (console + JSON + HTML)
 ```

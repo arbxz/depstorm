@@ -41,9 +41,26 @@ export interface BuildResult {
   error?: string;
 }
 
+export interface SonarIssue {
+  rule: string;
+  severity: Severity;
+  message: string;
+  file: string;
+  line: number;
+  column: number;
+}
+
+export interface SonarResult {
+  project: ProjectInfo;
+  issues: SonarIssue[];
+  issuesBySeverity: Record<Severity, number>;
+  totalCount: number;
+}
+
 export interface ProjectReport {
   project: ProjectInfo;
   audit: AuditResult;
+  sonar?: SonarResult;
   fix?: FixResult;
   build?: BuildResult;
   reverted: boolean;
@@ -69,6 +86,10 @@ export interface WizardConfig {
   gitBranch: boolean;
   /** Whether to auto-commit fixes */
   gitCommit: boolean;
+  /** Whether to auto-push fix branches to origin */
+  gitPush: boolean;
+  /** Whether to auto-merge fix branches back into the source branch */
+  gitMerge: boolean;
   /** Max directory scan depth */
   scanDepth: number;
   /** Directories to exclude from scanning */
@@ -79,6 +100,8 @@ export interface WizardConfig {
   sourceBranch?: string;
   /** Per-project source branch overrides: { projectName: branchName } */
   projectBranches?: Record<string, string>;
+  /** Whether to run SonarJS code quality checks */
+  sonarCheck: boolean;
 }
 
 export const DEFAULT_CONFIG: WizardConfig = {
@@ -89,8 +112,11 @@ export const DEFAULT_CONFIG: WizardConfig = {
   revertOnFailure: true,
   gitBranch: true,
   gitCommit: true,
+  gitPush: false,
+  gitMerge: false,
   scanDepth: 3,
   excludeDirs: ["node_modules", ".git", "dist", "build", ".next", ".nuxt"],
+  sonarCheck: true,
 };
 
 export const SEVERITY_ORDER: Record<Severity, number> = {

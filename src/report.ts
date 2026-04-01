@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import consola from "consola";
-import type { ProjectReport, Severity } from "./types.js";
+import type { ProjectReport, Severity, SonarResult } from "./types.js";
 
 const SEVERITY_COLORS: Record<Severity, string> = {
   info: "\x1b[36m", // cyan
@@ -27,7 +27,7 @@ export function printSummary(reports: ProjectReport[]): void {
   }
 
   for (const report of reports) {
-    const { project, audit, fix, build, reverted } = report;
+    const { project, audit, sonar, fix, build, reverted } = report;
 
     console.log(`─── ${project.name} (${project.packageManager}) ───`);
     console.log(`    Path: ${project.path}`);
@@ -61,6 +61,21 @@ export function printSummary(reports: ProjectReport[]): void {
       }
     }
 
+    // Sonar summary
+    if (sonar) {
+      if (sonar.totalCount === 0) {
+        console.log("    ✅ No code quality issues (SonarJS)");
+      } else {
+        console.log(`    🔎 ${sonar.totalCount} code quality issue(s):`);
+        for (const [sev, count] of Object.entries(sonar.issuesBySeverity)) {
+          if (count > 0) {
+            const color = SEVERITY_COLORS[sev as Severity];
+            console.log(`       ${color}${sev}: ${count}${RESET}`);
+          }
+        }
+      }
+    }
+
     // Build summary
     if (build) {
       if (build.success) {
@@ -83,6 +98,10 @@ export function printSummary(reports: ProjectReport[]): void {
     0,
   );
   const totalFailed = reports.filter((r) => r.build && !r.build.success).length;
+  const totalSonarIssues = reports.reduce(
+    (sum, r) => sum + (r.sonar?.totalCount ?? 0),
+    0,
+  );
 
   console.log("─".repeat(60));
   console.log(`  Projects scanned: ${reports.length}`);
@@ -90,6 +109,9 @@ export function printSummary(reports: ProjectReport[]): void {
   console.log(`  Total fixed: ${totalFixed}`);
   if (totalFailed > 0) {
     console.log(`  Build failures: ${totalFailed}`);
+  }
+  if (totalSonarIssues > 0) {
+    console.log(`  Code quality issues: ${totalSonarIssues}`);
   }
   console.log("─".repeat(60) + "\n");
 }
@@ -119,12 +141,21 @@ export async function saveHtmlReport(
     (sum, r) => sum + (r.fix?.fixedCount ?? 0),
     0,
   );
+  const totalSonarIssues = reports.reduce(
+    (sum, r) => sum + (r.sonar?.totalCount ?? 0),
+    0,
+  );
 
   const projectRows = reports
     .map((r) => {
       const statusIcon =
         r.audit.totalCount === 0 ? "✅" : r.fix?.applied ? "🔧" : "⚠️";
       const buildIcon = r.build ? (r.build.success ? "✅" : "❌") : "—";
+      const sonarIcon = r.sonar
+        ? r.sonar.totalCount === 0
+          ? "✅"
+          : `⚠️ ${r.sonar.totalCount}`
+        : "—";
 
       return `<tr>
         <td>${statusIcon} ${escapeHtml(r.project.name)}</td>
@@ -132,9 +163,25 @@ export async function saveHtmlReport(
         <td>${r.audit.totalCount}</td>
         <td>${r.fix?.fixedCount ?? 0}</td>
         <td>${buildIcon}</td>
+        <td>${sonarIcon}</td>
         <td>${r.reverted ? "Yes" : "—"}</td>
       </tr>`;
     })
+    .join("\n");
+
+  const sonarDetailRows = reports
+    .filter((r) => r.sonar && r.sonar.totalCount > 0)
+    .flatMap((r) =>
+      (r.sonar as SonarResult).issues.slice(0, 20).map(
+        (issue) => `<tr>
+          <td>${escapeHtml(r.project.name)}</td>
+          <td>${escapeHtml(issue.rule)}</td>
+          <td>${escapeHtml(issue.severity)}</td>
+          <td>${escapeHtml(issue.file)}:${issue.line}</td>
+          <td>${escapeHtml(issue.message)}</td>
+        </tr>`,
+      ),
+    )
     .join("\n");
 
   const html = `<!DOCTYPE html>
@@ -162,15 +209,30 @@ export async function saveHtmlReport(
     <div class="stat"><strong>${reports.length}</strong> Projects</div>
     <div class="stat"><strong>${totalVulns}</strong> Vulnerabilities</div>
     <div class="stat"><strong>${totalFixed}</strong> Fixed</div>
+    <div class="stat"><strong>${totalSonarIssues}</strong> Code Issues</div>
   </div>
   <table>
     <thead>
-      <tr><th>Project</th><th>PM</th><th>Vulns</th><th>Fixed</th><th>Build</th><th>Reverted</th></tr>
+      <tr><th>Project</th><th>PM</th><th>Vulns</th><th>Fixed</th><th>Build</th><th>Code Quality</th><th>Reverted</th></tr>
     </thead>
     <tbody>
       ${projectRows}
     </tbody>
   </table>
+  ${
+    sonarDetailRows
+      ? `
+  <h2>🔎 Code Quality Issues (SonarJS)</h2>
+  <table>
+    <thead>
+      <tr><th>Project</th><th>Rule</th><th>Severity</th><th>Location</th><th>Message</th></tr>
+    </thead>
+    <tbody>
+      ${sonarDetailRows}
+    </tbody>
+  </table>`
+      : ""
+  }
 </body>
 </html>`;
 

@@ -252,3 +252,60 @@ export async function pushBranch(
     return false;
   }
 }
+
+/**
+ * Merge a fix branch into the target branch and push the result.
+ * Returns true on success, false on failure (e.g. merge conflict).
+ */
+export async function mergeBranch(
+  project: ProjectInfo,
+  fixBranch: string,
+  targetBranch: string,
+): Promise<boolean> {
+  const git = getGit(project);
+
+  try {
+    await git.checkout(targetBranch);
+    await git.merge([
+      fixBranch,
+      "--no-ff",
+      "-m",
+      `Merge ${fixBranch} into ${targetBranch}`,
+    ]);
+    consola.success(
+      `${project.name}: Merged ${fixBranch} into ${targetBranch}`,
+    );
+
+    try {
+      await git.push("origin", targetBranch);
+      consola.success(`${project.name}: Pushed ${targetBranch} to origin`);
+    } catch (err) {
+      consola.warn(`${project.name}: Merge succeeded but push failed: ${err}`);
+    }
+
+    // Clean up the fix branch locally
+    try {
+      await git.deleteLocalBranch(fixBranch);
+      consola.info(`${project.name}: Deleted local branch ${fixBranch}`);
+    } catch {
+      // not critical
+    }
+
+    return true;
+  } catch (err) {
+    consola.error(`${project.name}: Merge failed: ${err}`);
+    // Abort merge if in conflict state
+    try {
+      await git.merge(["--abort"]);
+    } catch {
+      // not in merge state
+    }
+    // Switch back to target branch
+    try {
+      await git.checkout(targetBranch);
+    } catch {
+      // best effort
+    }
+    return false;
+  }
+}
