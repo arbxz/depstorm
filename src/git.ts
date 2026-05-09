@@ -37,6 +37,12 @@ async function promptAndStashIfDirty(
     `${project.name}: Working tree has uncommitted changes:\n${changedFiles.slice(0, 10).join("\n")}${changedFiles.length > 10 ? `\n  ... and ${changedFiles.length - 10} more` : ""}`,
   );
 
+  if (!process.stdin.isTTY) {
+    await git.stash();
+    consola.success(`${project.name}: Changes stashed automatically`);
+    return true;
+  }
+
   const answer = (await consola.prompt(
     `${project.name}: Stash these changes before proceeding?`,
     {
