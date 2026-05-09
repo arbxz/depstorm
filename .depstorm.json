@@ -1,0 +1,15 @@
+{
+  "roots": ["."],
+  "severityThreshold": "high",
+  "autoFix": true,
+  "verifyBuild": true,
+  "revertOnFailure": true,
+  "gitBranch": true,
+  "gitCommit": true,
+  "gitPush": true,
+  "gitMerge": true,
+  "sourceBranch": "main",
+  "scanDepth": 3,
+  "excludeDirs": ["node_modules", ".git", "dist", "build", ".next", ".nuxt"],
+  "reportPath": "./audit-reports/report"
+}

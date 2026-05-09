@@ -579,7 +579,7 @@ async function cliMode() {
         consola.warn("No projects found.");
         return;
       }
-      if (!config.sourceBranch) {
+      if (!config.sourceBranch && process.stdin.isTTY) {
         await promptBranchSelection(projects, config);
       }
       await runPipeline(projects, config);
