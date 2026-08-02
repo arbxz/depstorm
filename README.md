@@ -216,6 +216,36 @@ paths, your project inventory, and build output that may echo environment
 values. They are written with owner-only permissions; keep `audit-reports/`
 out of version control.
 
+## Development
+
+```bash
+pnpm install
+pnpm run typecheck   # type-checks src/ and test/
+pnpm test            # node:test via tsx — no test framework dependency
+pnpm run test:watch
+pnpm run build
+```
+
+### Tests
+
+The suite covers the parts of depstorm that can damage a repository or
+misreport a result:
+
+| File                    | Covers                                                                 |
+| ----------------------- | ---------------------------------------------------------------------- |
+| `test/git.test.ts`      | Stash ownership, scoped reverts, scoped staging, merge/push separation |
+| `test/config.test.ts`   | Config validation, report-path resolution, git-flag normalization      |
+| `test/discover.test.ts` | Workspace discovery, depth semantics, exclusions, deduplication        |
+| `test/audit.test.ts`    | npm/pnpm/yarn output parsing, audit-failure surfacing                  |
+| `test/fix.test.ts`      | Fix eligibility rules, backup and restore of touched files             |
+| `test/report.test.ts`   | Reverted-run accounting, `--fail-on` logic, HTML escaping              |
+
+The git tests run against throwaway repositories created under the OS temp
+directory, with local `user.name`, `user.email` and `core.autocrlf` so results
+don't depend on your global git config. Several assert the *absence* of the old
+destructive behaviour — for example that an untracked file survives a revert
+that `git clean -fd` would have deleted.
+
 ## Known limitations
 
 - **Yarn cannot be auto-fixed.** Yarn 1 has no non-interactive `audit fix` and

@@ -113,15 +113,24 @@ export function mergeConfig(raw: unknown, source = "config"): WizardConfig {
     return value;
   };
 
+  /** Assign only when the key was actually supplied, so absent stays absent */
+  const set = <K extends keyof WizardConfig>(
+    key: K,
+    value: WizardConfig[K] | undefined,
+  ): void => {
+    if (value !== undefined) config[key] = value;
+  };
+
   config.roots = stringArray("roots") ?? DEFAULT_CONFIG.roots;
-  config.projects = stringArray("projects");
   config.excludeDirs = stringArray("excludeDirs") ?? DEFAULT_CONFIG.excludeDirs;
   config.severityThreshold =
     severity("severityThreshold") ?? DEFAULT_CONFIG.severityThreshold;
-  config.failOn = severity("failOn");
-  config.schedule = str("schedule");
-  config.sourceBranch = str("sourceBranch");
-  config.reportPath = str("reportPath");
+
+  set("projects", stringArray("projects"));
+  set("failOn", severity("failOn"));
+  set("schedule", str("schedule"));
+  set("sourceBranch", str("sourceBranch"));
+  set("reportPath", str("reportPath"));
 
   for (const key of [
     "autoFix",
@@ -136,8 +145,7 @@ export function mergeConfig(raw: unknown, source = "config"): WizardConfig {
     "dryRun",
     "allowInstallScripts",
   ] as const) {
-    const value = bool(key);
-    if (value !== undefined) config[key] = value;
+    set(key, bool(key));
   }
 
   const depth = input.scanDepth;

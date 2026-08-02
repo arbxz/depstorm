@@ -43,7 +43,8 @@ function toSeverity(value: unknown): Severity {
   return isSeverity(value) ? value : "info";
 }
 
-function parseNpmAudit(json: NpmAuditJson): Vulnerability[] {
+/** @internal exported for tests */
+export function parseNpmAudit(json: NpmAuditJson): Vulnerability[] {
   return Object.entries(json.vulnerabilities ?? {}).map(([name, data]) => {
     // npm nests the advisory detail under `via` for transitive vulnerabilities
     const advisory = data.via?.find(
@@ -62,7 +63,8 @@ function parseNpmAudit(json: NpmAuditJson): Vulnerability[] {
   });
 }
 
-function parsePnpmAudit(json: PnpmAuditJson): Vulnerability[] {
+/** @internal exported for tests */
+export function parsePnpmAudit(json: PnpmAuditJson): Vulnerability[] {
   return Object.values(json.advisories ?? {}).map((advisory) => ({
     name: advisory.module_name ?? "unknown",
     severity: toSeverity(advisory.severity),
@@ -79,7 +81,7 @@ function parsePnpmAudit(json: PnpmAuditJson): Vulnerability[] {
  * available — the previous summary-only parse produced a non-zero count with
  * an empty vulnerability list, which made every downstream check a no-op.
  */
-function parseYarnAudit(stdout: string): Vulnerability[] {
+export function parseYarnAudit(stdout: string): Vulnerability[] {
   const vulns: Vulnerability[] = [];
   const seen = new Set<string>();
 
