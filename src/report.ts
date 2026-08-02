@@ -1,7 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import consola from "consola";
-import type { ProjectReport, Severity, SonarResult } from "./types.js";
+import {
+  SEVERITY_ORDER,
+  type ProjectReport,
+  type Severity,
+} from "./types.js";
 
 const SEVERITY_COLORS: Record<Severity, string> = {
   info: "\x1b[36m", // cyan
@@ -11,6 +15,57 @@ const SEVERITY_COLORS: Record<Severity, string> = {
   critical: "\x1b[35m", // magenta
 };
 const RESET = "\x1b[0m";
+
+/** Issues detailed per project in the HTML report */
+const MAX_SONAR_ROWS = 20;
+
+/**
+ * Vulnerabilities a project actually resolved.
+ *
+ * A reverted fix resolved nothing — its changes were rolled back — so it must
+ * not be counted or reported as fixed.
+ */
+export function effectiveFixedCount(report: ProjectReport): number {
+  if (report.reverted) return 0;
+  return report.fix?.fixedCount ?? 0;
+}
+
+/**
+ * Vulnerabilities still outstanding for a project, preferring the post-fix
+ * re-audit when one was performed. After a revert the post-fix numbers no
+ * longer describe the repository, so the original audit stands.
+ */
+export function remainingBySeverity(
+  report: ProjectReport,
+): Record<Severity, number> {
+  if (report.reverted) return report.audit.bySeverity;
+  return report.fix?.remainingBySeverity ?? report.audit.bySeverity;
+}
+
+/**
+ * Whether a project still has vulnerabilities at or above a severity.
+ * Audit failures count as unresolved — an unknown state is not a pass.
+ */
+export function hasUnresolvedAtOrAbove(
+  report: ProjectReport,
+  threshold: Severity,
+): boolean {
+  if (report.audit.error) return true;
+  const level = SEVERITY_ORDER[threshold];
+  return Object.entries(remainingBySeverity(report)).some(
+    ([severity, count]) =>
+      count > 0 && SEVERITY_ORDER[severity as Severity] >= level,
+  );
+}
+
+function printSeverityCounts(counts: Record<Severity, number>): void {
+  for (const [sev, count] of Object.entries(counts)) {
+    if (count > 0) {
+      const color = SEVERITY_COLORS[sev as Severity];
+      console.log(`       ${color}${sev}: ${count}${RESET}`);
+    }
+  }
+}
 
 /**
  * Print a summary to the console
@@ -32,23 +87,25 @@ export function printSummary(reports: ProjectReport[]): void {
     console.log(`─── ${project.name} (${project.packageManager}) ───`);
     console.log(`    Path: ${project.path}`);
 
-    // Audit summary
-    if (audit.totalCount === 0) {
+    if (audit.error) {
+      // Never render a failed audit as a clean project
+      console.log(`    ⛔ AUDIT FAILED — status unknown`);
+      console.log(`       ${audit.error}`);
+    } else if (audit.totalCount === 0) {
       console.log("    ✅ No vulnerabilities found");
     } else {
       console.log(`    🔍 ${audit.totalCount} vulnerabilities:`);
-      for (const [sev, count] of Object.entries(audit.bySeverity)) {
-        if (count > 0) {
-          const color = SEVERITY_COLORS[sev as Severity];
-          console.log(`       ${color}${sev}: ${count}${RESET}`);
-        }
-      }
+      printSeverityCounts(audit.bySeverity);
     }
 
-    // Fix summary
     if (fix) {
-      if (fix.applied) {
-        console.log(`    🔧 Fixed ${fix.fixedCount} vulnerabilities`);
+      if (fix.applied && reverted) {
+        console.log(
+          `    ↩️  Fix rolled back — ${fix.fixedCount} vulnerabilit${fix.fixedCount === 1 ? "y" : "ies"} NOT resolved`,
+        );
+      } else if (fix.applied) {
+        const suffix = fix.verified ? "" : " (unverified)";
+        console.log(`    🔧 Fixed ${fix.fixedCount} vulnerabilities${suffix}`);
         if (fix.remainingCount > 0) {
           console.log(
             `    ⚠️  ${fix.remainingCount} remaining (manual review needed)`,
@@ -57,56 +114,64 @@ export function printSummary(reports: ProjectReport[]): void {
       } else if (fix.error) {
         console.log(`    ❌ Fix failed: ${fix.error}`);
       } else {
-        console.log("    ℹ️  No fixes applied");
+        console.log(`    ℹ️  No fixes applied — ${fix.skippedReason ?? "n/a"}`);
       }
     }
 
-    // Sonar summary
     if (sonar) {
-      if (sonar.totalCount === 0) {
+      if (sonar.error) {
+        console.log(`    ⚠️  Code quality check failed: ${sonar.error}`);
+      } else if (sonar.totalCount === 0) {
         console.log("    ✅ No code quality issues (SonarJS)");
       } else {
         console.log(`    🔎 ${sonar.totalCount} code quality issue(s):`);
-        for (const [sev, count] of Object.entries(sonar.issuesBySeverity)) {
-          if (count > 0) {
-            const color = SEVERITY_COLORS[sev as Severity];
-            console.log(`       ${color}${sev}: ${count}${RESET}`);
-          }
-        }
+        printSeverityCounts(sonar.issuesBySeverity);
       }
     }
 
-    // Build summary
     if (build) {
-      if (build.success) {
+      if (build.skipped) {
+        console.log(`    🏗️  Build: skipped (${build.output})`);
+      } else if (build.success) {
         console.log("    🏗️  Build: PASSED");
       } else {
         console.log("    ❌ Build: FAILED");
-        if (reverted) {
-          console.log("    ↩️  Changes reverted");
-        }
+        if (reverted) console.log("    ↩️  Dependency changes reverted");
       }
+    }
+
+    if (report.fixBranch) {
+      console.log(`    🌿 Branch: ${report.fixBranch}`);
     }
 
     console.log();
   }
 
-  // Totals
   const totalVulns = reports.reduce((sum, r) => sum + r.audit.totalCount, 0);
   const totalFixed = reports.reduce(
-    (sum, r) => sum + (r.fix?.fixedCount ?? 0),
+    (sum, r) => sum + effectiveFixedCount(r),
     0,
   );
-  const totalFailed = reports.filter((r) => r.build && !r.build.success).length;
+  const totalReverted = reports.filter((r) => r.reverted).length;
+  const totalFailed = reports.filter(
+    (r) => r.build && !r.build.success && !r.build.skipped,
+  ).length;
   const totalSonarIssues = reports.reduce(
     (sum, r) => sum + (r.sonar?.totalCount ?? 0),
     0,
   );
+  const auditFailures = reports.filter((r) => r.audit.error).length;
 
   console.log("─".repeat(60));
   console.log(`  Projects scanned: ${reports.length}`);
   console.log(`  Total vulnerabilities: ${totalVulns}`);
   console.log(`  Total fixed: ${totalFixed}`);
+  if (auditFailures > 0) {
+    console.log(`  ⛔ Audits that failed: ${auditFailures}`);
+  }
+  if (totalReverted > 0) {
+    console.log(`  Reverted (build broke): ${totalReverted}`);
+  }
   if (totalFailed > 0) {
     console.log(`  Build failures: ${totalFailed}`);
   }
@@ -117,15 +182,20 @@ export function printSummary(reports: ProjectReport[]): void {
 }
 
 /**
- * Save report as JSON
+ * Save report as JSON.
+ *
+ * Reports contain absolute paths and build output, so they are written with
+ * owner-only permissions and should stay out of version control.
  */
 export async function saveJsonReport(
   reports: ProjectReport[],
   outputPath: string,
 ): Promise<void> {
-  const dir = path.dirname(outputPath);
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(outputPath, JSON.stringify(reports, null, 2), "utf-8");
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  await fs.writeFile(outputPath, JSON.stringify(reports, null, 2), {
+    encoding: "utf-8",
+    mode: 0o600,
+  });
   consola.success(`Report saved to ${outputPath}`);
 }
 
@@ -138,7 +208,7 @@ export async function saveHtmlReport(
 ): Promise<void> {
   const totalVulns = reports.reduce((sum, r) => sum + r.audit.totalCount, 0);
   const totalFixed = reports.reduce(
-    (sum, r) => sum + (r.fix?.fixedCount ?? 0),
+    (sum, r) => sum + effectiveFixedCount(r),
     0,
   );
   const totalSonarIssues = reports.reduce(
@@ -148,36 +218,58 @@ export async function saveHtmlReport(
 
   const projectRows = reports
     .map((r) => {
-      const statusIcon =
-        r.audit.totalCount === 0 ? "✅" : r.fix?.applied ? "🔧" : "⚠️";
-      const buildIcon = r.build ? (r.build.success ? "✅" : "❌") : "—";
-      const sonarIcon = r.sonar
-        ? r.sonar.totalCount === 0
+      const statusIcon = r.audit.error
+        ? "⛔"
+        : r.audit.totalCount === 0
           ? "✅"
-          : `⚠️ ${r.sonar.totalCount}`
+          : r.reverted
+            ? "↩️"
+            : r.fix?.applied
+              ? "🔧"
+              : "⚠️";
+      const vulnCell = r.audit.error
+        ? `<span title="${escapeHtml(r.audit.error)}">audit failed</span>`
+        : String(r.audit.totalCount);
+      const fixedCell = r.reverted
+        ? "0 (rolled back)"
+        : r.fix?.applied
+          ? `${r.fix.fixedCount}${r.fix.verified ? "" : " (unverified)"}`
+          : "0";
+      const buildCell = r.build
+        ? r.build.skipped
+          ? "—"
+          : r.build.success
+            ? "✅"
+            : "❌"
+        : "—";
+      const sonarCell = r.sonar
+        ? r.sonar.error
+          ? "error"
+          : r.sonar.totalCount === 0
+            ? "✅"
+            : `⚠️ ${r.sonar.totalCount}`
         : "—";
 
       return `<tr>
         <td>${statusIcon} ${escapeHtml(r.project.name)}</td>
-        <td>${r.project.packageManager}</td>
-        <td>${r.audit.totalCount}</td>
-        <td>${r.fix?.fixedCount ?? 0}</td>
-        <td>${buildIcon}</td>
-        <td>${sonarIcon}</td>
+        <td>${escapeHtml(r.project.packageManager)}</td>
+        <td>${vulnCell}</td>
+        <td>${escapeHtml(fixedCell)}</td>
+        <td>${buildCell}</td>
+        <td>${escapeHtml(sonarCell)}</td>
         <td>${r.reverted ? "Yes" : "—"}</td>
       </tr>`;
     })
     .join("\n");
 
   const sonarDetailRows = reports
-    .filter((r) => r.sonar && r.sonar.totalCount > 0)
     .flatMap((r) =>
-      (r.sonar as SonarResult).issues.slice(0, 20).map(
+      (r.sonar?.issues ?? []).slice(0, MAX_SONAR_ROWS).map(
         (issue) => `<tr>
           <td>${escapeHtml(r.project.name)}</td>
           <td>${escapeHtml(issue.rule)}</td>
           <td>${escapeHtml(issue.severity)}</td>
-          <td>${escapeHtml(issue.file)}:${issue.line}</td>
+          <td>${escapeHtml(issue.file)}:${Number(issue.line) || 0}</td>
           <td>${escapeHtml(issue.message)}</td>
         </tr>`,
       ),
@@ -188,11 +280,12 @@ export async function saveHtmlReport(
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
   <title>DepStorm Report</title>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
     h1 { color: #1a1a2e; }
-    .summary { display: flex; gap: 2rem; margin: 1rem 0; }
+    .summary { display: flex; gap: 2rem; margin: 1rem 0; flex-wrap: wrap; }
     .stat { background: #f0f0f5; padding: 1rem 1.5rem; border-radius: 8px; }
     .stat strong { display: block; font-size: 1.5rem; }
     table { width: 100%; border-collapse: collapse; margin-top: 1.5rem; }
@@ -204,7 +297,7 @@ export async function saveHtmlReport(
 </head>
 <body>
   <h1>⚡ DepStorm Report</h1>
-  <p class="timestamp">${new Date().toLocaleString()}</p>
+  <p class="timestamp">${escapeHtml(new Date().toLocaleString())}</p>
   <div class="summary">
     <div class="stat"><strong>${reports.length}</strong> Projects</div>
     <div class="stat"><strong>${totalVulns}</strong> Vulnerabilities</div>
@@ -236,16 +329,22 @@ export async function saveHtmlReport(
 </body>
 </html>`;
 
-  const dir = path.dirname(outputPath);
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(outputPath, html, "utf-8");
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  await fs.writeFile(outputPath, html, { encoding: "utf-8", mode: 0o600 });
   consola.success(`HTML report saved to ${outputPath}`);
 }
 
-function escapeHtml(str: string): string {
-  return str
+/**
+ * Escape every character that can break out of text or attribute context.
+ * Report content includes package names and linter messages, which are
+ * ultimately third-party strings.
+ */
+function escapeHtml(value: unknown): string {
+  return String(value)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/`/g, "&#96;");
 }

@@ -1,10 +1,10 @@
-import { ESLint } from "eslint";
 import consola from "consola";
-import type {
-  ProjectInfo,
-  Severity,
-  SonarIssue,
-  SonarResult,
+import {
+  emptySeverityMap,
+  type ProjectInfo,
+  type Severity,
+  type SonarIssue,
+  type SonarResult,
 } from "./types.js";
 
 const ESLINT_SEVERITY_MAP: Record<number, Severity> = {
@@ -13,37 +13,40 @@ const ESLINT_SEVERITY_MAP: Record<number, Severity> = {
 };
 
 /**
- * Run SonarJS code quality checks on a project using ESLint + eslint-plugin-sonarjs
+ * Run SonarJS code quality checks on a project using ESLint + eslint-plugin-sonarjs.
+ *
+ * ESLint is an optional dependency and is imported lazily so that a depstorm
+ * install without it still audits and fixes normally.
  */
 export async function runSonarCheck(
   project: ProjectInfo,
 ): Promise<SonarResult> {
   consola.start(`${project.name}: Running SonarJS code quality checks…`);
 
-  const issuesBySeverity: Record<Severity, number> = {
-    info: 0,
-    low: 0,
-    moderate: 0,
-    high: 0,
-    critical: 0,
-  };
+  const issuesBySeverity = emptySeverityMap();
 
   try {
-    const sonarPlugin = await import("eslint-plugin-sonarjs");
+    const [{ ESLint }, sonarPlugin] = await Promise.all([
+      import("eslint"),
+      import("eslint-plugin-sonarjs"),
+    ]);
+
+    const plugin = sonarPlugin.default ?? sonarPlugin;
 
     const eslint = new ESLint({
       cwd: project.path,
+      // Ignore the target project's own ESLint config. Loading it would
+      // execute code from the project being scanned.
       overrideConfigFile: true,
       overrideConfig: [
         {
           files: ["**/*.js", "**/*.ts", "**/*.jsx", "**/*.tsx"],
-          plugins: {
-            sonarjs: sonarPlugin.default ?? sonarPlugin,
-          },
+          plugins: { sonarjs: plugin },
           rules: Object.fromEntries(
-            Object.keys((sonarPlugin.default ?? sonarPlugin).rules ?? {}).map(
-              (rule) => [`sonarjs/${rule}`, "warn"],
-            ),
+            Object.keys(plugin.rules ?? {}).map((rule) => [
+              `sonarjs/${rule}`,
+              "warn",
+            ]),
           ),
         },
         {
@@ -60,8 +63,8 @@ export async function runSonarCheck(
     });
 
     const results = await eslint.lintFiles(["."]);
-
     const issues: SonarIssue[] = [];
+
 
     for (const result of results) {
       const relFile = result.filePath
@@ -82,20 +85,31 @@ export async function runSonarCheck(
       }
     }
 
-    const totalCount = issues.length;
-
-    if (totalCount === 0) {
+    if (issues.length === 0) {
       consola.success(`${project.name}: No code quality issues found`);
     } else {
       consola.warn(
-        `${project.name}: ${totalCount} code quality issue(s) found`,
+        `${project.name}: ${issues.length} code quality issue(s) found`,
       );
     }
 
-    return { project, issues, issuesBySeverity, totalCount };
+    return { issues, issuesBySeverity, totalCount: issues.length };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+
+    // "All files matched by '.' are ignored" just means there is no lintable
+    // source here — a clean result, not a failed check.
+    if (/are ignored|matched by/i.test(message)) {
+      consola.info(`${project.name}: No lintable source files`);
+      return { issues: [], issuesBySeverity, totalCount: 0 };
+    }
+
     consola.warn(`${project.name}: SonarJS check failed — ${message}`);
-    return { project, issues: [], issuesBySeverity, totalCount: 0 };
+    return {
+      issues: [],
+      issuesBySeverity,
+      totalCount: 0,
+      error: message,
+    };
   }
 }

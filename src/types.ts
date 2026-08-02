@@ -2,6 +2,26 @@ export type PackageManager = "npm" | "pnpm" | "yarn";
 
 export type Severity = "info" | "low" | "moderate" | "high" | "critical";
 
+export const SEVERITIES: readonly Severity[] = [
+  "info",
+  "low",
+  "moderate",
+  "high",
+  "critical",
+];
+
+export const PACKAGE_MANAGERS: readonly PackageManager[] = [
+  "npm",
+  "pnpm",
+  "yarn",
+];
+
+/** Package managers we can drive a non-interactive fix through */
+export const FIXABLE_PACKAGE_MANAGERS: readonly PackageManager[] = [
+  "npm",
+  "pnpm",
+];
+
 export interface ProjectInfo {
   name: string;
   path: string;
@@ -19,25 +39,35 @@ export interface Vulnerability {
 }
 
 export interface AuditResult {
-  project: ProjectInfo;
   vulnerabilities: Vulnerability[];
   totalCount: number;
   fixableCount: number;
   bySeverity: Record<Severity, number>;
+  /**
+   * Set when the audit could not be completed. When present the counts above
+   * are NOT trustworthy and must never be reported as "clean".
+   */
+  error?: string;
 }
 
 export interface FixResult {
-  project: ProjectInfo;
   applied: boolean;
   fixedCount: number;
   remainingCount: number;
+  /** True when fixedCount was confirmed by a post-fix re-audit */
+  verified: boolean;
+  /** Severity breakdown of what is still outstanding after the fix */
+  remainingBySeverity?: Record<Severity, number>;
+  /** Why no fix was applied, when applied === false */
+  skippedReason?: string;
   error?: string;
 }
 
 export interface BuildResult {
-  project: ProjectInfo;
   success: boolean;
   output: string;
+  /** True when there was nothing meaningful to verify */
+  skipped: boolean;
   error?: string;
 }
 
@@ -51,10 +81,10 @@ export interface SonarIssue {
 }
 
 export interface SonarResult {
-  project: ProjectInfo;
   issues: SonarIssue[];
   issuesBySeverity: Record<Severity, number>;
   totalCount: number;
+  error?: string;
 }
 
 export interface ProjectReport {
@@ -65,6 +95,8 @@ export interface ProjectReport {
   build?: BuildResult;
   reverted: boolean;
   timestamp: string;
+  /** Branch the fixes were committed to, when git operations ran */
+  fixBranch?: string;
 }
 
 export interface WizardConfig {
@@ -86,15 +118,20 @@ export interface WizardConfig {
   gitBranch: boolean;
   /** Whether to auto-commit fixes */
   gitCommit: boolean;
-  /** Whether to auto-push fix branches to origin */
+  /** Whether to auto-push branches to origin */
   gitPush: boolean;
   /** Whether to auto-merge fix branches back into the source branch */
   gitMerge: boolean;
-  /** Max directory scan depth */
+  /**
+   * Whether to stash a dirty working tree without asking when there is no TTY.
+   * Off by default: unattended runs skip dirty projects instead of touching them.
+   */
+  autoStash: boolean;
+  /** Max directory scan depth (levels below each root) */
   scanDepth: number;
   /** Directories to exclude from scanning */
   excludeDirs: string[];
-  /** Output report path */
+  /** Output report path (extension is added automatically) */
   reportPath?: string;
   /** Source branch to pull from before applying fixes (e.g. main, develop) */
   sourceBranch?: string;
@@ -102,6 +139,15 @@ export interface WizardConfig {
   projectBranches?: Record<string, string>;
   /** Whether to run SonarJS code quality checks */
   sonarCheck: boolean;
+  /** Report what would happen without touching anything */
+  dryRun: boolean;
+  /**
+   * Allow dependency lifecycle scripts to run during the post-fix install.
+   * Off by default — installing runs third-party code.
+   */
+  allowInstallScripts: boolean;
+  /** Exit non-zero when vulnerabilities at or above this severity remain */
+  failOn?: Severity;
 }
 
 export const DEFAULT_CONFIG: WizardConfig = {
@@ -114,9 +160,12 @@ export const DEFAULT_CONFIG: WizardConfig = {
   gitCommit: true,
   gitPush: false,
   gitMerge: false,
+  autoStash: false,
   scanDepth: 3,
   excludeDirs: ["node_modules", ".git", "dist", "build", ".next", ".nuxt"],
   sonarCheck: true,
+  dryRun: false,
+  allowInstallScripts: false,
 };
 
 export const SEVERITY_ORDER: Record<Severity, number> = {
@@ -126,3 +175,11 @@ export const SEVERITY_ORDER: Record<Severity, number> = {
   high: 3,
   critical: 4,
 };
+
+export function emptySeverityMap(): Record<Severity, number> {
+  return { info: 0, low: 0, moderate: 0, high: 0, critical: 0 };
+}
+
+export function isSeverity(value: unknown): value is Severity {
+  return typeof value === "string" && SEVERITIES.includes(value as Severity);
+}

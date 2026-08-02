@@ -1,26 +1,40 @@
 import consola from "consola";
-import type { ProjectInfo, ProjectReport, WizardConfig } from "./types.js";
+import path from "node:path";
+import { resolveReportBase } from "./config.js";
 import { runAudit } from "./audit.js";
 import {
   applyFix,
-  backupLockfile,
-  cleanupBackup,
-  restoreLockfile,
+  backupProjectFiles,
+  canAttemptFix,
+  cleanupBackups,
+  listTouchedFiles,
+  restoreProjectFiles,
+  runInstall,
+  type FileBackup,
 } from "./fix.js";
-import { verifyBuild } from "./verify.js";
 import {
   commitFixes,
   createFixBranch,
+  ensureCleanTree,
   getCurrentBranch,
   getSourceBranch,
   mergeBranch,
   pullSourceBranch,
   pushBranch,
-  revertChanges,
+  restoreStash,
+  revertTouchedFiles,
   switchBack,
+  type StashHandle,
 } from "./git.js";
 import { printSummary, saveHtmlReport, saveJsonReport } from "./report.js";
 import { runSonarCheck } from "./sonar.js";
+import { verifyBuild } from "./verify.js";
+import {
+  emptySeverityMap,
+  type ProjectInfo,
+  type ProjectReport,
+  type WizardConfig,
+} from "./types.js";
 
 /**
  * Run the full audit → fix → verify → report pipeline for a list of projects
@@ -31,21 +45,44 @@ export async function runPipeline(
 ): Promise<ProjectReport[]> {
   const reports: ProjectReport[] = [];
 
-  for (const project of projects) {
-    consola.box(`Processing: ${project.name}`);
-
-    const report = await processProject(project, config);
-    reports.push(report);
+  if (config.dryRun) {
+    consola.info("Dry run — no files, dependencies or branches will change");
   }
 
-  // Print summary
+  for (const project of projects) {
+    consola.box(`Processing: ${project.name}`);
+    try {
+      reports.push(await processProject(project, config));
+    } catch (err) {
+      // One broken project must not abort the whole run
+      const message = err instanceof Error ? err.message : String(err);
+      consola.error(`${project.name}: Unexpected failure — ${message}`);
+      reports.push({
+        project,
+        audit: {
+          vulnerabilities: [],
+          totalCount: 0,
+          fixableCount: 0,
+          bySeverity: emptySeverityMap(),
+          error: message,
+        },
+        reverted: false,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }
+
   printSummary(reports);
 
-  // Save reports if configured
-  if (config.reportPath) {
-    const basePath = config.reportPath.replace(/\.[^.]+$/, "");
+  if (config.reportPath && !config.dryRun) {
+    const basePath = resolveReportBase(config.reportPath, process.cwd());
     await saveJsonReport(reports, `${basePath}.json`);
     await saveHtmlReport(reports, `${basePath}.html`);
+  } else if (config.reportPath && config.dryRun) {
+    const basePath = resolveReportBase(config.reportPath, process.cwd());
+    consola.info(
+      `[dry-run] would write ${path.basename(basePath)}.json and .html to ${path.dirname(basePath)}`,
+    );
   }
 
   return reports;
@@ -55,176 +92,165 @@ async function processProject(
   project: ProjectInfo,
   config: WizardConfig,
 ): Promise<ProjectReport> {
-  const timestamp = new Date().toISOString();
+  const report: ProjectReport = {
+    project,
+    audit: await runAudit(project),
+    reverted: false,
+    timestamp: new Date().toISOString(),
+  };
 
-  // Step 1: Audit
-  const auditResult = await runAudit(project);
-
-  // Step 1b: SonarJS code quality check
-  const sonarResult = config.sonarCheck
-    ? await runSonarCheck(project)
-    : undefined;
-
-  if (auditResult.totalCount === 0) {
-    return {
-      project,
-      audit: auditResult,
-      sonar: sonarResult,
-      reverted: false,
-      timestamp,
-    };
+  if (config.sonarCheck) {
+    report.sonar = await runSonarCheck(project);
   }
 
-  // Step 2: Auto-fix (if enabled)
-  if (!config.autoFix) {
-    consola.info(`${project.name}: Auto-fix disabled, skipping`);
-    return {
-      project,
-      audit: auditResult,
-      sonar: sonarResult,
-      reverted: false,
-      timestamp,
-    };
+  if (report.audit.error) {
+    consola.error(
+      `${project.name}: Audit failed — ${report.audit.error}. Not treating this project as clean.`,
+    );
+    return report;
   }
 
-  // Backup lockfile
-  const backupPath = await backupLockfile(project.path);
+  if (report.audit.totalCount === 0) {
+    return report;
+  }
 
-  // Pull from source branch first, then create fix branch
+  // Decide eligibility before doing any git work, so depstorm doesn't stash,
+  // pull and branch for a project it is only going to skip.
+  const eligibility = canAttemptFix(project, report.audit, config);
+  if (!eligibility.ok || config.dryRun) {
+    report.fix = await applyFix(project, report.audit, config);
+    return report;
+  }
+
+  const backups: FileBackup[] = await backupProjectFiles(project.path);
+
   let originalBranch: string | undefined;
-  if (config.gitBranch && project.hasGit) {
-    try {
+  let stash: StashHandle | undefined;
+  let fixBranch: string | undefined;
+
+  try {
+    const wantsGit = project.hasGit && (config.gitBranch || config.gitCommit);
+
+    if (wantsGit) {
       originalBranch = await getCurrentBranch(project);
 
-      // Pull latest from the source branch before applying fixes
-      const sourceBranch = getSourceBranch(project, config);
-      if (sourceBranch) {
-        const proceeded = await pullSourceBranch(project, sourceBranch);
-        if (!proceeded) {
-          // User chose to skip this project
-          if (backupPath) await cleanupBackup(backupPath);
-          return {
-            project,
-            audit: auditResult,
-            reverted: false,
-            timestamp,
-          };
+      const clean = await ensureCleanTree(project, config);
+      if (!clean.ok) return report;
+      stash = clean.stash;
+
+      if (config.gitBranch) {
+        const sourceBranch = getSourceBranch(project, config);
+        if (sourceBranch && !(await pullSourceBranch(project, sourceBranch))) {
+          return report;
+        }
+
+        const created = await createFixBranch(project);
+        if (!created) {
+          consola.warn(
+            `${project.name}: Could not create a fix branch — skipping to avoid modifying ${originalBranch}`,
+          );
+          return report;
+        }
+        fixBranch = created;
+        report.fixBranch = created;
+      }
+    }
+
+    report.fix = await applyFix(project, report.audit, config);
+
+    if (!report.fix.applied) {
+      return report;
+    }
+
+    if (config.verifyBuild) {
+      report.build = await verifyBuild(project);
+
+      if (!report.build.success && config.revertOnFailure) {
+        consola.warn(`${project.name}: Build failed, reverting changes`);
+        await revertFix(project, backups, config);
+        report.reverted = true;
+        return report;
+      }
+    }
+
+    if (config.gitCommit && project.hasGit) {
+      const touched = await listTouchedFiles(project.path);
+      const committed = await commitFixes(
+        project,
+        touched,
+        report.fix.fixedCount,
+        report.fix.verified,
+      );
+
+      if (committed) {
+        if (config.gitPush && fixBranch && !config.gitMerge) {
+          await pushBranch(project, fixBranch);
+        }
+
+        if (config.gitMerge) {
+          await mergeStep(project, config, fixBranch);
         }
       }
-
-      const fixBranch = await createFixBranch(project);
-      if (!fixBranch) {
-        // User chose to skip this project
-        if (backupPath) await cleanupBackup(backupPath);
-        if (originalBranch) await switchBack(project, originalBranch);
-        return {
-          project,
-          audit: auditResult,
-          reverted: false,
-          timestamp,
-        };
-      }
-    } catch {
-      consola.warn(`${project.name}: Skipping git branch creation`);
     }
+
+    return report;
+  } finally {
+    // Always hand the repository back the way it was found
+    if (originalBranch) await switchBack(project, originalBranch);
+    if (stash) await restoreStash(project, stash);
+    await cleanupBackups(backups);
+  }
+}
+
+/**
+ * Undo a fix that broke the build, restoring only the files depstorm touched
+ * and reinstalling so node_modules matches the restored lockfile again.
+ */
+async function revertFix(
+  project: ProjectInfo,
+  backups: FileBackup[],
+  config: WizardConfig,
+): Promise<void> {
+  const touched = await listTouchedFiles(project.path);
+
+  if (project.hasGit) {
+    await revertTouchedFiles(project, touched);
+    await cleanupBackups(backups);
+    consola.info(`${project.name}: Reinstalling from restored lockfile...`);
+    await runInstall(project, config);
+  } else {
+    await restoreProjectFiles(project, backups, config);
+  }
+}
+
+/**
+ * Merge the fix branch into its source branch.
+ *
+ * Requires a branch depstorm created: merging "whatever branch we happen to be
+ * on" into the source branch was never the intent of the `--merge` flag.
+ */
+async function mergeStep(
+  project: ProjectInfo,
+  config: WizardConfig,
+  fixBranch: string | undefined,
+): Promise<void> {
+  if (!fixBranch) {
+    consola.warn(
+      `${project.name}: Merge skipped — no fix branch was created (enable "gitBranch")`,
+    );
+    return;
   }
 
-  // Apply fix
-  const fixResult = await applyFix(auditResult, config);
-
-  if (!fixResult.applied) {
-    // No fixes applied, clean up
-    if (backupPath) await cleanupBackup(backupPath);
-    if (originalBranch && project.hasGit) {
-      await switchBack(project, originalBranch);
-    }
-    return {
-      project,
-      audit: auditResult,
-      sonar: sonarResult,
-      fix: fixResult,
-      reverted: false,
-      timestamp,
-    };
+  const target = getSourceBranch(project, config);
+  if (!target) {
+    consola.warn(
+      `${project.name}: Merge skipped — no source branch configured (set "sourceBranch" or --branch)`,
+    );
+    return;
   }
 
-  // Step 3: Build verification (if enabled)
-  let buildResult;
-  let reverted = false;
-
-  if (config.verifyBuild) {
-    buildResult = await verifyBuild(project);
-
-    if (!buildResult.success && config.revertOnFailure) {
-      consola.warn(`${project.name}: Build failed, reverting changes`);
-
-      if (project.hasGit) {
-        await revertChanges(project);
-      } else if (backupPath) {
-        await restoreLockfile(backupPath);
-      }
-
-      reverted = true;
-    }
-  }
-
-  // Step 4: Commit (if build passed & git enabled)
-  let fixBranchName: string | undefined;
-  if (config.gitCommit && project.hasGit && fixResult.applied && !reverted) {
-    try {
-      await commitFixes(project, fixResult.fixedCount);
-
-      // Step 5: Push fix branch to origin (if enabled)
-      if (config.gitPush) {
-        fixBranchName = await getCurrentBranch(project);
-        await pushBranch(project, fixBranchName);
-      }
-    } catch {
-      consola.warn(`${project.name}: Failed to commit fixes`);
-    }
-  }
-
-  // Step 6: Merge fix branch into source branch (if enabled)
-  const sourceBranch = getSourceBranch(project, config);
-  if (
-    config.gitMerge &&
-    project.hasGit &&
-    fixResult.applied &&
-    !reverted &&
-    sourceBranch
-  ) {
-    const branch = fixBranchName ?? (await getCurrentBranch(project));
-    const merged = await mergeBranch(project, branch, sourceBranch);
-    if (merged) {
-      // Already on source branch after merge, no need to switchBack
-      if (backupPath) await cleanupBackup(backupPath);
-      return {
-        project,
-        audit: auditResult,
-        sonar: sonarResult,
-        fix: fixResult,
-        build: buildResult,
-        reverted,
-        timestamp,
-      };
-    }
-  }
-
-  // Switch back to original branch
-  if (originalBranch && project.hasGit) {
-    await switchBack(project, originalBranch);
-  }
-
-  // Cleanup backup
-  if (backupPath) await cleanupBackup(backupPath);
-
-  return {
-    project,
-    audit: auditResult,
-    sonar: sonarResult,
-    fix: fixResult,
-    build: buildResult,
-    reverted,
-    timestamp,
-  };
+  await mergeBranch(project, fixBranch, target, {
+    push: config.gitPush,
+    deleteBranch: true,
+  });
 }

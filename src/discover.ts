@@ -9,13 +9,49 @@ const LOCKFILE_MAP: Record<string, PackageManager> = {
   "package-lock.json": "npm",
 };
 
-async function exists(filePath: string): Promise<boolean> {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
+/** Cap on concurrent directory reads so large trees can't exhaust file handles */
+const IO_CONCURRENCY = 16;
+
+class Semaphore {
+  private waiters: Array<() => void> = [];
+
+  constructor(private slots: number) {}
+
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    await this.acquire();
+    try {
+      return await fn();
+    } finally {
+      this.release();
+    }
   }
+
+  private async acquire(): Promise<void> {
+    if (this.slots > 0) {
+      this.slots--;
+      return;
+    }
+    await new Promise<void>((resolve) => this.waiters.push(resolve));
+  }
+
+  private release(): void {
+    const next = this.waiters.shift();
+    if (next) next();
+    else this.slots++;
+  }
+}
+
+const io = new Semaphore(IO_CONCURRENCY);
+
+async function exists(filePath: string): Promise<boolean> {
+  return io.run(async () => {
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch {
+      return false;
+    }
+  });
 }
 
 async function detectPackageManager(
@@ -30,47 +66,92 @@ async function detectPackageManager(
 }
 
 async function hasGitRepo(projectPath: string): Promise<boolean> {
+  // `.git` is a directory in a normal clone and a file in worktrees/submodules
   return exists(path.join(projectPath, ".git"));
 }
 
+async function readPackageJson(
+  pkgPath: string,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const raw = await io.run(() => fs.readFile(pkgPath, "utf-8"));
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Recursively scan directories to find projects containing package.json
+ * A workspace root delegates its real dependencies to child packages, so
+ * discovery must keep descending instead of stopping at the first package.json.
+ */
+async function isWorkspaceRoot(
+  dir: string,
+  pkg: Record<string, unknown>,
+): Promise<boolean> {
+  const workspaces = pkg.workspaces;
+  if (Array.isArray(workspaces) && workspaces.length > 0) return true;
+  if (
+    workspaces !== null &&
+    typeof workspaces === "object" &&
+    Array.isArray((workspaces as { packages?: unknown }).packages)
+  ) {
+    return true;
+  }
+  return exists(path.join(dir, "pnpm-workspace.yaml"));
+}
+
+async function toProjectInfo(
+  dir: string,
+  pkg: Record<string, unknown>,
+): Promise<ProjectInfo> {
+  const name = typeof pkg.name === "string" ? pkg.name : path.basename(dir);
+  return {
+    name,
+    path: dir,
+    packageManager: await detectPackageManager(dir),
+    hasGit: await hasGitRepo(dir),
+  };
+}
+
+/**
+ * Recursively scan directories to find projects containing package.json.
+ *
+ * `remaining` is the number of levels still allowed *below* `dir`, so
+ * `scanDepth: 3` visits the root plus three levels — matching the docs.
  */
 async function scanDir(
   dir: string,
-  depth: number,
+  remaining: number,
   config: WizardConfig,
   results: ProjectInfo[],
 ): Promise<void> {
-  if (depth < 0) return;
-
   const pkgPath = path.join(dir, "package.json");
+  let keepDescending = true;
+
   if (await exists(pkgPath)) {
-    try {
-      const raw = await fs.readFile(pkgPath, "utf-8");
-      const pkg = JSON.parse(raw) as { name?: string };
-      const pm = await detectPackageManager(dir);
-      const git = await hasGitRepo(dir);
-
-      results.push({
-        name: pkg.name ?? path.basename(dir),
-        path: dir,
-        packageManager: pm,
-        hasGit: git,
-      });
-
-      consola.debug(`Found project: ${pkg.name ?? dir} (${pm})`);
-    } catch {
+    const pkg = await readPackageJson(pkgPath);
+    if (pkg) {
+      results.push(await toProjectInfo(dir, pkg));
+      consola.debug(`Found project: ${dir}`);
+      // Only keep walking when this is a monorepo root; a leaf project's
+      // subdirectories are its own source, not separate projects.
+      keepDescending = await isWorkspaceRoot(dir, pkg);
+    } else {
       consola.warn(`Failed to parse package.json in ${dir}`);
+      keepDescending = false;
     }
-    // Don't recurse into a project's subdirectories
-    return;
   }
 
-  // Recurse into subdirectories
+  if (!keepDescending || remaining <= 0) return;
+
   let entries;
   try {
-    entries = await fs.readdir(dir, { withFileTypes: true });
+    entries = await io.run(() => fs.readdir(dir, { withFileTypes: true }));
   } catch {
     return;
   }
@@ -84,7 +165,7 @@ async function scanDir(
 
   await Promise.all(
     subdirs.map((sub) =>
-      scanDir(path.join(dir, sub.name), depth - 1, config, results),
+      scanDir(path.join(dir, sub.name), remaining - 1, config, results),
     ),
   );
 }
@@ -97,6 +178,7 @@ export async function discoverProjects(
   config: WizardConfig,
 ): Promise<ProjectInfo[]> {
   const projects: ProjectInfo[] = [];
+  const seen = new Set<string>();
 
   consola.start("Scanning for projects...");
 
@@ -108,8 +190,16 @@ export async function discoverProjects(
     await scanDir(root, config.scanDepth, config, projects);
   }
 
-  consola.success(`Discovered ${projects.length} project(s)`);
-  return projects;
+  // Overlapping roots can surface the same project twice
+  const unique = projects.filter((p) => {
+    const key = path.resolve(p.path);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  consola.success(`Discovered ${unique.length} project(s)`);
+  return unique;
 }
 
 /**
@@ -122,28 +212,20 @@ export async function resolveExplicitProjects(
 
   for (const p of paths) {
     const absPath = path.resolve(p);
-    if (!(await exists(path.join(absPath, "package.json")))) {
+    const pkgPath = path.join(absPath, "package.json");
+
+    if (!(await exists(pkgPath))) {
       consola.warn(`No package.json found at ${absPath}, skipping`);
       continue;
     }
-    try {
-      const raw = await fs.readFile(
-        path.join(absPath, "package.json"),
-        "utf-8",
-      );
-      const pkg = JSON.parse(raw) as { name?: string };
-      const pm = await detectPackageManager(absPath);
-      const git = await hasGitRepo(absPath);
 
-      results.push({
-        name: pkg.name ?? path.basename(absPath),
-        path: absPath,
-        packageManager: pm,
-        hasGit: git,
-      });
-    } catch {
+    const pkg = await readPackageJson(pkgPath);
+    if (!pkg) {
       consola.warn(`Failed to read project at ${absPath}`);
+      continue;
     }
+
+    results.push(await toProjectInfo(absPath, pkg));
   }
 
   return results;
