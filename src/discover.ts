@@ -54,15 +54,50 @@ async function exists(filePath: string): Promise<boolean> {
   });
 }
 
-async function detectPackageManager(
-  projectPath: string,
-): Promise<PackageManager> {
+async function lockfileIn(dir: string): Promise<PackageManager | null> {
   for (const [lockfile, pm] of Object.entries(LOCKFILE_MAP)) {
-    if (await exists(path.join(projectPath, lockfile))) {
+    if (await exists(path.join(dir, lockfile))) {
       return pm;
     }
   }
-  return "npm"; // default fallback
+  return null;
+}
+
+async function detectPackageManager(
+  projectPath: string,
+): Promise<PackageManager> {
+  return (await lockfileIn(projectPath)) ?? "npm"; // default fallback
+}
+
+/**
+ * Find the nearest ancestor that actually governs this project's dependencies.
+ *
+ * The ancestor must both *declare a workspace* and hold a lockfile. Accepting
+ * any ancestor with a lockfile would be wrong: a stray `package-lock.json`
+ * sitting in a parent directory would silently adopt every unrelated project
+ * beneath it.
+ */
+async function findWorkspaceRoot(
+  projectPath: string,
+): Promise<{ dir: string; packageManager: PackageManager } | null> {
+  let dir = path.dirname(projectPath);
+
+  for (;;) {
+    const pm = await lockfileIn(dir);
+    if (pm) {
+      const pkg = await readPackageJson(path.join(dir, "package.json"));
+      if (pkg && (await isWorkspaceRoot(dir, pkg))) {
+        return { dir, packageManager: pm };
+      }
+      // A lockfile without a workspace declaration governs only itself, and
+      // nothing above it can reach past it either.
+      return null;
+    }
+
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
 }
 
 async function hasGitRepo(projectPath: string): Promise<boolean> {
@@ -110,11 +145,25 @@ async function toProjectInfo(
   pkg: Record<string, unknown>,
 ): Promise<ProjectInfo> {
   const name = typeof pkg.name === "string" ? pkg.name : path.basename(dir);
+  const ownLockfile = await lockfileIn(dir);
+
+  if (ownLockfile) {
+    return {
+      name,
+      path: dir,
+      packageManager: ownLockfile,
+      hasGit: await hasGitRepo(dir),
+    };
+  }
+
+  // No lockfile here — see whether an ancestor owns one before falling back
+  const root = await findWorkspaceRoot(dir);
   return {
     name,
     path: dir,
-    packageManager: await detectPackageManager(dir),
+    packageManager: root?.packageManager ?? (await detectPackageManager(dir)),
     hasGit: await hasGitRepo(dir),
+    ...(root ? { workspaceRoot: root.dir } : {}),
   };
 }
 

@@ -254,5 +254,7 @@ that `git clean -fd` would have deleted.
 - **The severity threshold is a trigger, not a filter.** It decides *whether*
   to run `audit fix`; the package manager then fixes everything it can,
   including lower-severity advisories.
-- **No test suite yet.** The git layer is the riskiest part of the codebase and
-  deserves integration tests against throwaway repositories.
+- **Workspace members are not audited individually.** A package with no
+  lockfile of its own resolves through its workspace root, so depstorm audits
+  the root and reports the member as covered rather than running an audit that
+  could only fail.

@@ -91,6 +91,9 @@ export function printSummary(reports: ProjectReport[]): void {
       // Never render a failed audit as a clean project
       console.log(`    ⛔ AUDIT FAILED — status unknown`);
       console.log(`       ${audit.error}`);
+    } else if (audit.coveredBy) {
+      console.log(`    📦 Covered by workspace — not audited separately`);
+      console.log(`       ${audit.coveredBy}`);
     } else if (audit.totalCount === 0) {
       console.log("    ✅ No vulnerabilities found");
     } else {
@@ -161,6 +164,7 @@ export function printSummary(reports: ProjectReport[]): void {
     0,
   );
   const auditFailures = reports.filter((r) => r.audit.error).length;
+  const workspaceCovered = reports.filter((r) => r.audit.coveredBy).length;
 
   console.log("─".repeat(60));
   console.log(`  Projects scanned: ${reports.length}`);
@@ -168,6 +172,9 @@ export function printSummary(reports: ProjectReport[]): void {
   console.log(`  Total fixed: ${totalFixed}`);
   if (auditFailures > 0) {
     console.log(`  ⛔ Audits that failed: ${auditFailures}`);
+  }
+  if (workspaceCovered > 0) {
+    console.log(`  📦 Covered by a workspace root: ${workspaceCovered}`);
   }
   if (totalReverted > 0) {
     console.log(`  Reverted (build broke): ${totalReverted}`);
@@ -220,16 +227,20 @@ export async function saveHtmlReport(
     .map((r) => {
       const statusIcon = r.audit.error
         ? "⛔"
-        : r.audit.totalCount === 0
-          ? "✅"
-          : r.reverted
-            ? "↩️"
-            : r.fix?.applied
-              ? "🔧"
-              : "⚠️";
+        : r.audit.coveredBy
+          ? "📦"
+          : r.audit.totalCount === 0
+            ? "✅"
+            : r.reverted
+              ? "↩️"
+              : r.fix?.applied
+                ? "🔧"
+                : "⚠️";
       const vulnCell = r.audit.error
         ? `<span title="${escapeHtml(r.audit.error)}">audit failed</span>`
-        : String(r.audit.totalCount);
+        : r.audit.coveredBy
+          ? `<span title="${escapeHtml(r.audit.coveredBy)}">covered by workspace</span>`
+          : String(r.audit.totalCount);
       const fixedCell = r.reverted
         ? "0 (rolled back)"
         : r.fix?.applied

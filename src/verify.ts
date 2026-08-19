@@ -6,6 +6,8 @@ import type { BuildResult, ProjectInfo } from "./types.js";
 
 const BUILD_TIMEOUT_MS = 5 * 60 * 1000;
 const MAX_OUTPUT_BYTES = 2000;
+/** How much of a failing build's output to echo to the console. */
+const BUILD_ERROR_LINES = 15;
 
 async function readPackageJson(
   projectPath: string,
@@ -112,12 +114,23 @@ export async function verifyBuild(project: ProjectInfo): Promise<BuildResult> {
       return { success: true, skipped: false, output: stdout };
     }
 
-    consola.error(`${project.name}: Build failed`);
+    const stderr = (result.stderr ?? "").slice(-MAX_OUTPUT_BYTES);
+
+    // Without this the console says only "Build failed", and the reason for a
+    // revert is invisible unless someone goes digging in the JSON report.
+    const detail = (stderr.trim() || stdout.trim())
+      .split("\n")
+      .slice(-BUILD_ERROR_LINES)
+      .join("\n");
+
+    consola.error(
+      `${project.name}: Build failed${detail ? `\n${detail}` : ""}`,
+    );
     return {
       success: false,
       skipped: false,
       output: stdout,
-      error: (result.stderr ?? "").slice(-MAX_OUTPUT_BYTES),
+      error: stderr,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

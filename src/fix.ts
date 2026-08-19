@@ -4,6 +4,7 @@ import path from "node:path";
 import consola from "consola";
 import { runAudit } from "./audit.js";
 import {
+  BACKUP_SUFFIX,
   FIXABLE_PACKAGE_MANAGERS,
   SEVERITY_ORDER,
   type AuditResult,
@@ -65,7 +66,7 @@ export async function backupProjectFiles(
 
   for (const file of await listTouchedFiles(projectPath)) {
     const original = path.join(projectPath, file);
-    const backup = `${original}.depstorm-backup`;
+    const backup = `${original}${BACKUP_SUFFIX}`;
     await fs.copyFile(original, backup);
     backups.push({ original, backup });
   }
