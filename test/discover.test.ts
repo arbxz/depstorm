@@ -198,3 +198,68 @@ describe("resolveExplicitProjects", () => {
     assert.deepEqual(found, []);
   });
 });
+
+describe("workspace member detection", () => {
+  it("marks a lockfile-less member of a declared workspace", async () => {
+    const root = tempDir();
+    writeJson(root, "package.json", {
+      name: "monorepo",
+      workspaces: ["apps/*"],
+    });
+    writeFile(root, "pnpm-lock.yaml", "\n");
+    writeJson(root, "apps/server/package.json", { name: "server" });
+
+    const projects = await discoverProjects([root], testConfig({ scanDepth: 3 }));
+    const member = projects.find((p) => p.name === "server");
+
+    assert.ok(member, "the workspace member must still be discovered");
+    assert.equal(member.workspaceRoot, root);
+    assert.equal(
+      member.packageManager,
+      "pnpm",
+      "the member inherits the package manager that owns the lockfile",
+    );
+  });
+
+  it("does not adopt unrelated projects under a stray lockfile", async () => {
+    const root = tempDir();
+    // A lockfile with no workspaces declaration — e.g. a scratch package-lock
+    // sitting in a directory that merely contains many checkouts.
+    writeJson(root, "package.json", { name: "not-a-monorepo" });
+    writeFile(root, "package-lock.json", "\n");
+    writeJson(root, "unrelated/package.json", { name: "unrelated" });
+
+    const projects = await discoverProjects([root], testConfig({ scanDepth: 3 }));
+    const child = projects.find((p) => p.name === "unrelated");
+
+    if (child) {
+      assert.equal(
+        child.workspaceRoot,
+        undefined,
+        "a stray lockfile must not adopt unrelated projects",
+      );
+    }
+  });
+
+  it("leaves a standalone project with its own lockfile unmarked", async () => {
+    const root = tempDir();
+    writeJson(root, "package.json", {
+      name: "monorepo",
+      workspaces: ["apps/*"],
+    });
+    writeFile(root, "pnpm-lock.yaml", "\n");
+    writeJson(root, "apps/standalone/package.json", { name: "standalone" });
+    writeFile(root, "apps/standalone/package-lock.json", "\n");
+
+    const projects = await discoverProjects([root], testConfig({ scanDepth: 3 }));
+    const member = projects.find((p) => p.name === "standalone");
+
+    assert.ok(member);
+    assert.equal(
+      member.workspaceRoot,
+      undefined,
+      "a project with its own lockfile is audited on its own",
+    );
+    assert.equal(member.packageManager, "npm");
+  });
+});
