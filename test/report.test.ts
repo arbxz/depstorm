@@ -209,10 +209,25 @@ describe("saveHtmlReport", () => {
       }),
     ]);
 
-    assert.ok(!html.includes("<script>"), "script tags must not survive");
     assert.ok(!html.includes("<img src=x"), "img tags must not survive");
     assert.ok(html.includes("&lt;img"), "the name should be visible, escaped");
     assert.ok(!html.includes(`alert('xss')`), "quotes must be escaped");
+    assert.ok(
+      html.includes("&lt;script&gt;"),
+      "an injected script tag must appear escaped, not live",
+    );
+
+    // The report ships exactly one script block of its own — the one driving
+    // search, sort and row expansion. Any second one came from report data.
+    assert.equal(
+      html.split("<script>").length - 1,
+      1,
+      "only depstorm's own inline script may appear",
+    );
+    assert.ok(
+      !/<script[^>]*>(?![\s\S]*?depstorm)[\s\S]{0,40}alert/i.test(html),
+      "no script block may contain injected payload",
+    );
   });
 
   it("shows a rolled-back fix as zero fixed", async () => {
