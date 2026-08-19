@@ -143,3 +143,43 @@ export function projectInfo(
 export function testConfig(overrides: Partial<WizardConfig> = {}): WizardConfig {
   return { ...DEFAULT_CONFIG, ...overrides };
 }
+
+export interface CapturedLog {
+  type: string;
+  text: string;
+}
+
+/**
+ * Collect what the modules under test report, so a test can assert on the
+ * absence of an alarming error and not just on the resulting git state.
+ * Several bugs here were "right outcome, wrong report".
+ */
+export function captureLogs(): {
+  logs: CapturedLog[];
+  errors: () => string[];
+  restore: () => void;
+} {
+  const logs: CapturedLog[] = [];
+  const previousLevel = consola.level;
+  const reporter = {
+    log(entry: { type?: string; args?: unknown[] }) {
+      logs.push({
+        type: String(entry.type ?? ""),
+        text: (entry.args ?? []).map((a) => String(a)).join(" "),
+      });
+    },
+  };
+
+  consola.level = 999;
+  consola.addReporter(reporter);
+
+  return {
+    logs,
+    errors: () =>
+      logs.filter((l) => l.type === "error").map((l) => l.text),
+    restore: () => {
+      consola.removeReporter(reporter);
+      consola.level = previousLevel;
+    },
+  };
+}

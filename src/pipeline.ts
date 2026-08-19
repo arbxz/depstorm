@@ -31,6 +31,7 @@ import { runSonarCheck } from "./sonar.js";
 import { verifyBuild } from "./verify.js";
 import {
   emptySeverityMap,
+  type AuditResult,
   type ProjectInfo,
   type ProjectReport,
   type WizardConfig,
@@ -88,16 +89,37 @@ export async function runPipeline(
   return reports;
 }
 
+/** An audit that was deliberately not run because a workspace root owns it. */
+function coveredByWorkspace(root: string): AuditResult {
+  return {
+    vulnerabilities: [],
+    totalCount: 0,
+    fixableCount: 0,
+    bySeverity: emptySeverityMap(),
+    coveredBy: root,
+  };
+}
+
 async function processProject(
   project: ProjectInfo,
   config: WizardConfig,
 ): Promise<ProjectReport> {
   const report: ProjectReport = {
     project,
-    audit: await runAudit(project),
+    // A workspace member resolves its dependencies through the root lockfile,
+    // so a standalone audit here can only fail. The root is audited separately.
+    audit: project.workspaceRoot
+      ? coveredByWorkspace(project.workspaceRoot)
+      : await runAudit(project),
     reverted: false,
     timestamp: new Date().toISOString(),
   };
+
+  if (report.audit.coveredBy) {
+    consola.info(
+      `${project.name}: Covered by the workspace at ${report.audit.coveredBy} — not audited separately`,
+    );
+  }
 
   if (config.sonarCheck) {
     report.sonar = await runSonarCheck(project);
@@ -122,7 +144,12 @@ async function processProject(
     return report;
   }
 
-  const backups: FileBackup[] = await backupProjectFiles(project.path);
+  // Backups are taken *after* the git setup below. Taking them earlier writes
+  // untracked *.depstorm-backup files into the tree, which the cleanliness
+  // check then reports as the user's uncommitted work — and an untracked-only
+  // tree produces no stash at all, so the stash bookkeeping fails on a repo
+  // that was actually pristine.
+  let backups: FileBackup[] = [];
 
   let originalBranch: string | undefined;
   let stash: StashHandle | undefined;
@@ -156,9 +183,16 @@ async function processProject(
       }
     }
 
+    backups = await backupProjectFiles(project.path);
+
     report.fix = await applyFix(project, report.audit, config);
 
     if (!report.fix.applied) {
+      // The fixer may still have rewritten the manifest or lockfile even when
+      // it resolved nothing. Leaving those edits behind strands generated
+      // changes in the tree and blocks the stash from being popped back.
+      await restoreProjectFiles(project, backups, config);
+      backups = [];
       return report;
     }
 
@@ -195,10 +229,13 @@ async function processProject(
 
     return report;
   } finally {
-    // Always hand the repository back the way it was found
+    // Always hand the repository back the way it was found. Backups go first:
+    // they are untracked files depstorm created, and leaving them on disk while
+    // switching branches or popping the stash makes depstorm's own artifacts
+    // look like the user's uncommitted work.
+    await cleanupBackups(backups);
     if (originalBranch) await switchBack(project, originalBranch);
     if (stash) await restoreStash(project, stash);
-    await cleanupBackups(backups);
   }
 }
 

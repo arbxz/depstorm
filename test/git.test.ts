@@ -25,6 +25,7 @@ import {
   projectInfo,
   readFile,
   silenceLogs,
+  captureLogs,
   stashCount,
   testConfig,
   writeFile,
@@ -449,5 +450,136 @@ describe("redactGitError", () => {
 
   it("leaves ordinary messages intact", () => {
     assert.equal(redactGitError("merge conflict in src.js"), "merge conflict in src.js");
+  });
+});
+
+describe("depstorm's own backup files", () => {
+  it("does not report an error on a tree dirtied only by depstorm's backups", async () => {
+    const dir = createRepo();
+
+    // What backupProjectFiles leaves behind while a fix is in flight
+    writeFile(dir, "package.json.depstorm-backup", '{"name":"fixture"}\n');
+    writeFile(dir, "package-lock.json.depstorm-backup", '{"v":3}\n');
+
+    const capture = captureLogs();
+    let result;
+    try {
+      result = await ensureCleanTree(
+        projectInfo(dir),
+        testConfig({ autoStash: true }),
+      );
+    } finally {
+      capture.restore();
+    }
+
+    assert.equal(result.ok, true);
+    assert.equal(result.stash, undefined);
+    assert.equal(stashCount(dir), 0);
+    assert.deepEqual(
+      capture.errors(),
+      [],
+      "a repo dirty only with depstorm's own artifacts must not raise an error",
+    );
+  });
+
+  it("still stashes real work when backups sit alongside it", async () => {
+    const dir = createRepo();
+    writeFile(dir, "src.js", "real user work\n");
+    writeFile(dir, "package.json.depstorm-backup", '{"name":"fixture"}\n');
+
+    const result = await ensureCleanTree(
+      projectInfo(dir),
+      testConfig({ autoStash: true }),
+    );
+
+    assert.equal(result.ok, true);
+    assert.ok(result.stash, "genuine changes must still be stashed");
+    assert.equal(stashCount(dir), 1);
+    assert.equal(readFile(dir, "src.js").trim(), "original");
+  });
+
+  it("does not report an error when only untracked files differ", async () => {
+    const dir = createRepo();
+    writeFile(dir, "brand-new.txt", "untracked\n");
+
+    // `git stash push` (no -u) creates nothing here. The old code then asked
+    // for stash@{0} and surfaced a fatal error on an otherwise fine repo.
+    const capture = captureLogs();
+    let result;
+    try {
+      result = await ensureCleanTree(
+        projectInfo(dir),
+        testConfig({ autoStash: true }),
+      );
+    } finally {
+      capture.restore();
+    }
+
+    assert.equal(result.stash, undefined, "no entry was created, so no handle");
+    assert.equal(stashCount(dir), 0);
+    assert.equal(fileExists(dir, "brand-new.txt"), true);
+    assert.deepEqual(
+      capture.errors(),
+      [],
+      "an untracked-only tree is not a stash failure",
+    );
+  });
+});
+
+describe("restoreStash conflict detection", () => {
+  it("reports a conflicted pop as a failure, not a success", async () => {
+    const dir = createRepo();
+    const project = projectInfo(dir);
+
+    // User work that depstorm stashes away
+    writeFile(dir, "src.js", "USER EDIT\n");
+    const { stash } = await ensureCleanTree(
+      project,
+      testConfig({ autoStash: true }),
+    );
+    assert.ok(stash);
+
+    // A commit touching the same lines — exactly what a dependency fix does
+    writeFile(dir, "src.js", "COMMITTED FIX\n");
+    commitAll(dir, "fix(deps): conflicting change");
+
+    const result = await restoreStash(project, stash);
+
+    assert.equal(
+      result.ok,
+      false,
+      "a pop that leaves conflict markers must not be reported as restored",
+    );
+    assert.equal(result.ok === false && result.reason, "conflict");
+    assert.deepEqual(
+      result.ok === false && result.reason === "conflict"
+        ? result.conflicts
+        : [],
+      ["src.js"],
+    );
+    assert.match(readFile(dir, "src.js"), /<<<<<<</);
+    assert.equal(
+      stashCount(dir),
+      1,
+      "a conflicted pop keeps the stash so the work is recoverable",
+    );
+  });
+
+  it("reports a clean pop as success", async () => {
+    const dir = createRepo();
+    const project = projectInfo(dir);
+
+    writeFile(dir, "src.js", "USER EDIT\n");
+    const { stash } = await ensureCleanTree(
+      project,
+      testConfig({ autoStash: true }),
+    );
+    assert.ok(stash);
+
+    const result = await restoreStash(project, stash);
+
+    assert.equal(result.ok, true);
+    assert.equal(readFile(dir, "src.js").trim(), "USER EDIT");
+    assert.equal(stashCount(dir), 0);
   });
 });

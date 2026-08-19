@@ -1,5 +1,6 @@
 import { simpleGit, type SimpleGit } from "simple-git";
 import consola from "consola";
+import { BACKUP_SUFFIX } from "./types.js";
 import type { ProjectInfo, WizardConfig } from "./types.js";
 
 function getGit(project: ProjectInfo): SimpleGit {
@@ -81,20 +82,29 @@ export async function ensureCleanTree(
   const git = getGit(project);
   const status = await git.status();
 
+  // Depstorm's own backup files are not the user's work in progress. Counting
+  // them makes a pristine repository look dirty and triggers a pointless stash.
+  const ours = (f: string) => f.endsWith(BACKUP_SUFFIX);
+  const modified = status.modified.filter((f) => !ours(f));
+  const notAdded = status.not_added.filter((f) => !ours(f));
+  const staged = status.staged.filter((f) => !ours(f));
+  const deleted = status.deleted.filter((f) => !ours(f));
+  const renamed = status.renamed.filter((r) => !ours(r.to));
+
   const dirty =
-    status.modified.length > 0 ||
-    status.not_added.length > 0 ||
-    status.staged.length > 0 ||
-    status.deleted.length > 0 ||
-    status.renamed.length > 0;
+    modified.length > 0 ||
+    notAdded.length > 0 ||
+    staged.length > 0 ||
+    deleted.length > 0 ||
+    renamed.length > 0;
 
   if (!dirty) return { ok: true };
 
   const changed = [
-    ...status.staged.map((f) => `  S ${f}`),
-    ...status.modified.map((f) => `  M ${f}`),
-    ...status.deleted.map((f) => `  D ${f}`),
-    ...status.not_added.map((f) => `  ? ${f}`),
+    ...staged.map((f) => `  S ${f}`),
+    ...modified.map((f) => `  M ${f}`),
+    ...deleted.map((f) => `  D ${f}`),
+    ...notAdded.map((f) => `  ? ${f}`),
   ];
 
   consola.warn(
@@ -146,8 +156,27 @@ async function createStash(
 ): Promise<StashHandle | undefined> {
   const label = stashLabel();
   try {
+    const before = (await git.stashList()).all.length;
     await git.stash(["push", "-m", label]);
-    const sha = (await git.revparse(["stash@{0}"])).trim();
+    const list = await git.stashList();
+
+    // `git stash push` is a no-op when nothing tracked has changed — it prints
+    // "No local changes to save" and exits 0 without creating an entry. Asking
+    // for stash@{0} in that state resolves someone else's stash, or fails
+    // outright on an empty list. Neither is an error worth alarming about.
+    if (list.all.length === before) {
+      consola.debug(`${project.name}: Nothing required stashing`);
+      return undefined;
+    }
+
+    const sha = list.all[0]?.hash?.trim();
+    if (!sha) {
+      consola.warn(
+        `${project.name}: Stashed changes but could not identify the stash — leaving it in place. Recover it with: git stash list`,
+      );
+      return undefined;
+    }
+
     consola.success(`${project.name}: Changes stashed (${label})`);
     return { sha, label };
   } catch (err) {
@@ -159,12 +188,38 @@ async function createStash(
 }
 
 /**
+ * Paths git considers unmerged. Used to detect a conflicted stash pop, which
+ * does not reliably surface as a non-zero exit code.
+ */
+async function unmergedPaths(git: SimpleGit): Promise<string[]> {
+  try {
+    const out = await git.raw(["diff", "--name-only", "--diff-filter=U"]);
+    return out
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/** Outcome of popping depstorm's stash back onto the working tree. */
+export type RestoreStashResult =
+  | { ok: true }
+  | { ok: false; reason: "missing" }
+  | { ok: false; reason: "conflict"; conflicts: string[] }
+  | { ok: false; reason: "error"; message: string };
+
+/**
  * Pop the stash depstorm created — identified by SHA, never by position.
+ *
+ * Returns the outcome rather than only logging it: a conflicted pop leaves the
+ * user's work half-applied, and callers need to be able to tell.
  */
 export async function restoreStash(
   project: ProjectInfo,
   handle: StashHandle,
-): Promise<void> {
+): Promise<RestoreStashResult> {
   const git = getGit(project);
 
   try {
@@ -175,15 +230,34 @@ export async function restoreStash(
       consola.warn(
         `${project.name}: Could not find depstorm's stash (${handle.label}) — leaving the stash list untouched. Recover it with: git stash list`,
       );
-      return;
+      return { ok: false, reason: "missing" };
     }
 
     await git.stash(["pop", `stash@{${index}}`]);
+
+    // A conflicted pop can still exit 0. Reporting success then would leave
+    // conflict markers sitting in the working tree under a green checkmark,
+    // which is the worst possible way to be wrong about someone's work.
+    const conflicts = await unmergedPaths(git);
+    if (conflicts.length > 0) {
+      consola.error(
+        `${project.name}: Restoring the stash produced conflicts in:\n${conflicts
+          .map((f) => `  ${f}`)
+          .join(
+            "\n",
+          )}\nThe working tree contains conflict markers and the stash was kept. Resolve them, then run: git stash drop`,
+      );
+      return { ok: false, reason: "conflict", conflicts };
+    }
+
     consola.success(`${project.name}: Restored stashed changes`);
+    return { ok: true };
   } catch (err) {
+    const message = redactGitError(err);
     consola.error(
-      `${project.name}: Failed to restore stash "${handle.label}": ${redactGitError(err)}. Your changes are still in "git stash list".`,
+      `${project.name}: Failed to restore stash "${handle.label}": ${message}. Your changes are still in "git stash list".`,
     );
+    return { ok: false, reason: "error", message };
   }
 }
 

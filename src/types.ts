@@ -27,6 +27,13 @@ export interface ProjectInfo {
   path: string;
   packageManager: PackageManager;
   hasGit: boolean;
+  /**
+   * Set for a workspace member that has no lockfile of its own — the path of
+   * the nearest ancestor that does. Its dependency tree is resolved by that
+   * root, so auditing it standalone only produces "requires an existing
+   * lockfile".
+   */
+  workspaceRoot?: string;
 }
 
 export interface Vulnerability {
@@ -48,6 +55,12 @@ export interface AuditResult {
    * are NOT trustworthy and must never be reported as "clean".
    */
   error?: string;
+  /**
+   * Set when the project was deliberately not audited because its dependencies
+   * are governed by the workspace root at this path. Not a failure — the root
+   * is audited in its own right.
+   */
+  coveredBy?: string;
 }
 
 export interface FixResult {
@@ -167,6 +180,12 @@ export const DEFAULT_CONFIG: WizardConfig = {
   dryRun: false,
   allowInstallScripts: false,
 };
+
+/**
+ * Suffix for the copies depstorm keeps while a fix is in flight. Shared so the
+ * cleanliness check can tell depstorm's own artifacts from the user's work.
+ */
+export const BACKUP_SUFFIX = ".depstorm-backup";
 
 export const SEVERITY_ORDER: Record<Severity, number> = {
   info: 0,
