@@ -31,6 +31,7 @@ import {
   switchBack,
   type StashHandle,
 } from "./git.js";
+import { reportOverrideDrift } from "./overrides.js";
 import { printSummary, saveHtmlReport, saveJsonReport } from "./report.js";
 import { runSonarCheck } from "./sonar.js";
 import { verifyBuild } from "./verify.js";
@@ -466,6 +467,10 @@ async function processGroup(
           continue;
         }
       }
+
+      // Checked here because a fix has just appended an override entry, and
+      // this is when the reader is already thinking about dependencies.
+      await reportOverrideDrift(project);
 
       applied.push(report);
     }
