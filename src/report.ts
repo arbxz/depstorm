@@ -102,6 +102,23 @@ export function operationalFailure(
   return undefined;
 }
 
+/**
+ * Whether a project still has code quality issues at or above a severity.
+ * A failed check counts as unresolved, on the same reasoning as an audit.
+ */
+export function hasQualityIssuesAtOrAbove(
+  report: ProjectReport,
+  threshold: Severity,
+): boolean {
+  if (!report.sonar) return false;
+  if (report.sonar.error !== undefined) return true;
+  const level = SEVERITY_ORDER[threshold];
+  return Object.entries(report.sonar.issuesBySeverity).some(
+    ([severity, count]) =>
+      count > 0 && SEVERITY_ORDER[severity as Severity] >= level,
+  );
+}
+
 function printSeverityCounts(counts: Record<Severity, number>): void {
   for (const [sev, count] of Object.entries(counts)) {
     if (count > 0) {
@@ -143,6 +160,16 @@ export function printSummary(reports: ProjectReport[]): void {
     } else {
       console.log(`    🔍 ${audit.totalCount} vulnerabilities:`);
       printSeverityCounts(audit.bySeverity);
+    }
+
+    if (audit.ignored && audit.ignored.length > 0) {
+      // Suppressed advisories are still present in the tree — a report that
+      // hid them would be indistinguishable from one that missed them.
+      console.log(
+        `    🔕 ${audit.ignored.length} suppressed by ignore rules: ${audit.ignored
+          .map((v) => v.name)
+          .join(", ")}`,
+      );
     }
 
     if (audit.breakingFixCount > 0) {
@@ -440,6 +467,10 @@ export async function saveHtmlReport(
 
   const auditFailures = reports.filter((r) => r.audit.error).length;
   const covered = reports.filter((r) => r.audit.coveredBy).length;
+  const totalIgnored = reports.reduce(
+    (sum, r) => sum + (r.audit.ignored?.length ?? 0),
+    0,
+  );
 
   const rows = reports
     .map((r, i) => {
@@ -522,6 +553,15 @@ export async function saveHtmlReport(
         .map((text) => `<p class="note bad alert">${escapeHtml(text)}</p>`)
         .join("");
 
+      const suppressed = (r.audit.ignored ?? []).length
+        ? `<p class="note muted trunc">Suppressed by ignore rules: ${(r.audit.ignored ?? [])
+            .map(
+              (v) =>
+                `<code>${escapeHtml(v.name)}</code> (${escapeHtml(v.severity)})`,
+            )
+            .join(", ")}</p>`
+        : "";
+
       const nextStep = remediation(r);
       const remedy = nextStep
         ? `<p class="note remedy"><strong>Next:</strong> ${escapeHtml(nextStep)}</p>`
@@ -544,7 +584,7 @@ export async function saveHtmlReport(
           <td class="sev">${severityBar(remaining)}</td>
           <td><span class="status s-${status}">${STATUS_LABEL[status]}</span></td>
         </tr>
-        <tr class="detail" id="d${i}" hidden><td colspan="7">${alerts}${remedy}${buildError}${detail}</td></tr>
+        <tr class="detail" id="d${i}" hidden><td colspan="7">${alerts}${remedy}${buildError}${detail}${suppressed}</td></tr>
       </tbody>`;
     })
     .join("\n");
@@ -706,6 +746,7 @@ export async function saveHtmlReport(
     <div class="tile"><b>${totalFixed}</b><span>Fixed</span></div>
     <div class="tile${totalRemaining > 0 ? " warn" : ""}"><b>${totalRemaining}</b><span>Still outstanding</span></div>
     <div class="tile"><b>${totalSonarIssues}</b><span>Code quality issues</span></div>
+    ${totalIgnored > 0 ? `<div class="tile"><b>${totalIgnored}</b><span>Suppressed by ignore rules</span></div>` : ""}
     ${auditFailures > 0 ? `<div class="tile warn"><b>${auditFailures}</b><span>Audits failed</span></div>` : ""}
     ${covered > 0 ? `<div class="tile"><b>${covered}</b><span>Covered by workspace</span></div>` : ""}
   </div>

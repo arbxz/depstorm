@@ -1,9 +1,11 @@
 import { execa } from "execa";
 import consola from "consola";
+import { applyIgnores } from "./ignore.js";
 import {
   emptySeverityMap,
   isSeverity,
   type AuditResult,
+  type IgnoreRule,
   type ProjectInfo,
   type Severity,
   type Vulnerability,
@@ -173,9 +175,19 @@ function describeFixability(
   return parts.join(", ");
 }
 
+export interface AuditOptions {
+  quiet?: boolean;
+  /**
+   * Advisories to suppress. Applied here rather than by the caller so every
+   * count downstream agrees — applyFix compares a before and an after audit,
+   * and filtering only one of them would corrupt the arithmetic.
+   */
+  ignore?: IgnoreRule[];
+}
+
 export async function runAudit(
   project: ProjectInfo,
-  options: { quiet?: boolean } = {},
+  options: AuditOptions = {},
 ): Promise<AuditResult> {
   const log = options.quiet
     ? { start: () => {}, info: () => {}, success: () => {} }
@@ -256,6 +268,20 @@ export async function runAudit(
     return failed(`Could not parse audit output: ${message}`);
   }
 
+  // Suppressions are applied before anything is counted, so totals, severity
+  // breakdowns and --fail-on all describe the same set of advisories.
+  const { vulnerabilities: kept, ignored } = partitionIgnored(
+    vulnerabilities,
+    options.ignore,
+  );
+
+  if (ignored.length > 0) {
+    log.info(
+      `${project.name}: ${ignored.length} advisor${ignored.length === 1 ? "y" : "ies"} suppressed by ignore rules`,
+    );
+  }
+  vulnerabilities = kept;
+
   const bySeverity = emptySeverityMap();
   for (const v of vulnerabilities) {
     bySeverity[v.severity]++;
@@ -282,5 +308,31 @@ export async function runAudit(
     fixableCount,
     breakingFixCount,
     bySeverity,
+    ...(ignored.length > 0 ? { ignored } : {}),
+  };
+}
+
+/**
+ * Split parsed advisories into those that still count and those a rule
+ * suppresses. Reuses applyIgnores so there is one definition of "matched".
+ */
+function partitionIgnored(
+  vulnerabilities: Vulnerability[],
+  rules: IgnoreRule[] | undefined,
+): { vulnerabilities: Vulnerability[]; ignored: Vulnerability[] } {
+  const filtered = applyIgnores(
+    {
+      vulnerabilities,
+      totalCount: vulnerabilities.length,
+      fixableCount: 0,
+      breakingFixCount: 0,
+      bySeverity: emptySeverityMap(),
+    },
+    rules,
+  );
+
+  return {
+    vulnerabilities: filtered.vulnerabilities,
+    ignored: filtered.ignored ?? [],
   };
 }
