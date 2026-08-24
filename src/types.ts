@@ -110,6 +110,13 @@ export interface SonarResult {
   error?: string;
 }
 
+/** Outcome of popping the stash depstorm created back onto the working tree. */
+export type RestoreStashResult =
+  | { ok: true }
+  | { ok: false; reason: "missing" }
+  | { ok: false; reason: "conflict"; conflicts: string[] }
+  | { ok: false; reason: "error"; message: string };
+
 export interface ProjectReport {
   project: ProjectInfo;
   audit: AuditResult;
@@ -126,6 +133,12 @@ export interface ProjectReport {
    * needs manual attention, so this must reach the summary and the exit code.
    */
   revertIncomplete?: string;
+  /**
+   * Outcome of restoring the user's stashed work, when depstorm stashed any.
+   * A conflicted pop leaves conflict markers in the working tree, so this has
+   * to reach the summary and the exit code rather than only the log.
+   */
+  stashRestore?: RestoreStashResult;
 }
 
 export interface WizardConfig {

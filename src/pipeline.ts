@@ -237,7 +237,9 @@ async function processProject(
     // look like the user's uncommitted work.
     await cleanupBackups(backups);
     if (originalBranch) await switchBack(project, originalBranch);
-    if (stash) await restoreStash(project, stash);
+    // Mutating `report` here still reaches the caller: the returns above
+    // hand back this same object reference, not a copy.
+    if (stash) report.stashRestore = await restoreStash(project, stash);
   }
 }
 
