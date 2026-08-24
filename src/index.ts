@@ -16,6 +16,7 @@ import {
 } from "./report.js";
 import { scheduleTask } from "./scheduler.js";
 import {
+  DEFAULT_CONFIG,
   isSeverity,
   SEVERITIES,
   type ProjectInfo,
@@ -202,16 +203,19 @@ function applyExitCode(reports: ProjectReport[], config: WizardConfig): void {
 async function interactiveMode() {
   printBanner();
 
+  // Loaded once. Reloading per iteration re-printed "Loaded config from ..."
+  // every time round the menu, and each action gets a fresh copy anyway so
+  // one action's answers cannot leak into the next.
+  const baseConfig = await loadConfig();
+
   let running = true;
   while (running) {
-    running = await interactiveIteration();
+    running = await interactiveIteration({ ...baseConfig });
   }
   consola.info("Done! 👋");
 }
 
-async function interactiveIteration(): Promise<boolean> {
-  const config = await loadConfig();
-
+async function interactiveIteration(config: WizardConfig): Promise<boolean> {
   const action = (await consola.prompt("What would you like to do?", {
     type: "select",
     options: [
@@ -256,6 +260,13 @@ async function interactiveIteration(): Promise<boolean> {
     return askAgain();
   }
 
+  // Scheduling re-discovers on every run, so scanning now is wasted work and
+  // an extra two prompts before the question the user actually came for.
+  if (action === "schedule") {
+    await interactiveSchedule(config);
+    return askAgain();
+  }
+
   const rootInput = (await consola.prompt(
     "Root directory to scan for projects:",
     { type: "text", placeholder: process.cwd(), default: process.cwd() },
@@ -282,27 +293,53 @@ async function interactiveIteration(): Promise<boolean> {
     return askAgain();
   }
 
-  consola.success(`Found ${projects.length} project(s)`);
-
   switch (action) {
     case "scan":
       actionScan(projects);
       break;
-    case "run":
-      await actionRun(projects, config);
+    case "run": {
+      // Push and merge already let you choose; run — the destructive one —
+      // used to take every project discovered, with no way to narrow it.
+      const chosen = await selectProjects(projects, "Select projects to run:");
+      if (chosen.length === 0) {
+        consola.info("No projects selected.");
+        break;
+      }
+      await actionRun(chosen, config);
       break;
+    }
     case "push":
       await interactivePush(projects);
       break;
     case "merge":
       await interactiveMerge(projects);
       break;
-    case "schedule":
-      await interactiveSchedule(config);
-      break;
   }
 
   return askAgain();
+}
+
+/**
+ * Let the user narrow a discovered list. Everything is pre-selected, so the
+ * default answer matches what depstorm used to do unconditionally.
+ */
+async function selectProjects(
+  projects: ProjectInfo[],
+  message: string,
+): Promise<ProjectInfo[]> {
+  if (projects.length === 1) return projects;
+
+  const selected = (await consola.prompt(message, {
+    type: "multiselect",
+    initial: projects.map((p) => p.path),
+    options: projects.map((p) => ({
+      label: p.name,
+      value: p.path,
+      hint: p.packageManager,
+    })),
+  })) as unknown as string[] | undefined;
+
+  return projects.filter((p) => selected?.includes(p.path));
 }
 
 async function askAgain(): Promise<boolean> {
@@ -646,14 +683,26 @@ async function interactiveSchedule(config: WizardConfig) {
     ).trim();
   }
 
+  const first = (await consola.prompt("When should the first run happen?", {
+    type: "select",
+    options: [
+      { label: "Now, then keep to the schedule", value: "now" },
+      { label: "Wait for the next scheduled time", value: "wait" },
+    ],
+  })) as unknown as string;
+
   consola.info("Starting scheduled mode. Press Ctrl+C to stop.\n");
 
-  scheduleTask(cronExpr, async () => {
-    // Re-discover each run so newly added projects are picked up
-    const roots = resolveRoots(config, process.cwd());
-    const projects = await discoverProjects(roots, config);
-    if (projects.length > 0) await runPipeline(projects, config);
-  });
+  scheduleTask(
+    cronExpr,
+    async () => {
+      // Re-discover each run so newly added projects are picked up
+      const roots = resolveRoots(config, process.cwd());
+      const projects = await discoverProjects(roots, config);
+      if (projects.length > 0) await runPipeline(projects, config);
+    },
+    { runImmediately: first === "now" },
+  );
 
   await new Promise(() => {});
 }
@@ -671,24 +720,13 @@ async function actionInit() {
     // doesn't exist — good
   }
 
+  // Derived from DEFAULT_CONFIG rather than restated. The hand-written copy
+  // that used to live here had already drifted from it.
   const defaultConfig = {
-    roots: ["."],
-    severityThreshold: "high",
-    autoFix: true,
-    verifyBuild: true,
-    revertOnFailure: true,
-    gitBranch: true,
-    gitCommit: true,
-    gitPush: false,
-    gitMerge: false,
-    autoStash: false,
-    allowInstallScripts: false,
-    sonarCheck: true,
-    dryRun: false,
-    scanDepth: 3,
-    excludeDirs: ["node_modules", ".git", "dist", "build", ".next", ".nuxt"],
+    ...DEFAULT_CONFIG,
     schedule: "0 9 * * 1",
     reportPath: "./audit-reports/report",
+    ignore: [] as Array<Record<string, string>>,
   };
 
   await fs.writeFile(
@@ -741,6 +779,11 @@ async function cliMode() {
     )
     .option("--dry-run", "Report what would happen without changing anything")
     .option(
+      "--concurrency <number>",
+      "Repositories to process at once (only when git operations are off)",
+      parsePositiveInt,
+    )
+    .option(
       "--fail-on <level>",
       `Exit non-zero if vulnerabilities at or above this level remain (${SEVERITIES.join("|")})`,
     )
@@ -753,7 +796,10 @@ async function cliMode() {
       "Suppress advisories for these packages for this run only",
     )
     .option("--report <path>", "Report output path (extension added for you)")
+    .option("--no-report", "Do not write report files, even if configured")
     .option("-b, --branch <name>", "Source branch to pull from")
+    .option("-y, --yes", "Answer prompts with their defaults and never block")
+    .option("--no-prompt", "Never prompt; use whatever the config already says")
     .action(async (opts) => {
       const config = await buildConfig(opts);
       const projects = await getProjects(config, opts);
@@ -761,9 +807,16 @@ async function cliMode() {
         consola.warn("No projects found.");
         return;
       }
-      if (!config.sourceBranch && config.gitBranch && process.stdin.isTTY) {
+
+      // Without this, `depstorm run` in a terminal stops on a branch-selection
+      // menu partway through — surprising for a scripted-but-interactive run.
+      const mayPrompt =
+        opts.prompt !== false && !opts.yes && process.stdin.isTTY === true;
+
+      if (!config.sourceBranch && config.gitBranch && mayPrompt) {
         await promptBranchSelection(projects, config);
       }
+
       const reports = await runPipeline(projects, config);
       applyExitCode(reports, config);
     });
@@ -855,14 +908,23 @@ async function cliMode() {
   discoveryOptions(program.command("schedule"))
     .description("Run on a cron schedule")
     .option("--cron <expression>", "Cron expression")
+    .option("--timezone <name>", "IANA timezone for the schedule")
+    .option("--run-now", "Run once immediately, then keep to the schedule")
     .action(async (opts) => {
       const config = await buildConfig(opts);
       const cronExpr = opts.cron ?? config.schedule ?? "0 9 * * 1";
       consola.info("Starting scheduled mode. Press Ctrl+C to stop.");
-      scheduleTask(cronExpr, async () => {
-        const projects = await getProjects(config, opts);
-        if (projects.length > 0) await runPipeline(projects, config);
-      });
+      scheduleTask(
+        cronExpr,
+        async () => {
+          const projects = await getProjects(config, opts);
+          if (projects.length > 0) await runPipeline(projects, config);
+        },
+        {
+          timezone: opts.timezone as string | undefined,
+          runImmediately: Boolean(opts.runNow),
+        },
+      );
       await new Promise(() => {});
     });
 
@@ -881,6 +943,14 @@ function parseDepth(value: string): number {
     throw new Error(`--depth must be a non-negative integer, got "${value}"`);
   }
   return depth;
+}
+
+function parsePositiveInt(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`--concurrency must be an integer of 1 or more, got "${value}"`);
+  }
+  return parsed;
 }
 
 function requireSeverity(value: unknown, flag: string): Severity {
@@ -931,8 +1001,12 @@ async function buildConfig(
     config.gitMerge = false;
   }
 
-  if (opts.report) config.reportPath = opts.report as string;
+  if (opts.report === false) config.reportPath = undefined;
+  else if (opts.report) config.reportPath = opts.report as string;
   if (opts.depth !== undefined) config.scanDepth = opts.depth as number;
+  if (opts.concurrency !== undefined) {
+    config.concurrency = opts.concurrency as number;
+  }
   if (opts.branch) config.sourceBranch = opts.branch as string;
   // Opt-outs win over opt-ins, and over anything the config file enabled
   if (opts.push) config.gitPush = true;

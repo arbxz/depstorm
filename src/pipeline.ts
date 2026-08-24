@@ -6,6 +6,7 @@ import {
   type PendingCleanup,
 } from "./cleanup.js";
 import { resolveReportBase } from "./config.js";
+import { mapWithLimit } from "./semaphore.js";
 import { runAudit } from "./audit.js";
 import {
   applyFix,
@@ -99,21 +100,26 @@ export async function runPipeline(
   const groups = groupByRepository(projects);
   let done = 0;
   const advance = () => ++done;
+  const limit = concurrencyFor(config, groups.length);
 
-  for (const group of groups) {
+  if (limit > 1) {
+    consola.info(`Running up to ${limit} repositories in parallel`);
+  }
+
+  const grouped = await mapWithLimit(groups, limit, async (group) => {
     try {
-      reports.push(
-        ...(await processGroup(group, config, advance, projects.length)),
-      );
+      return await processGroup(group, config, advance, projects.length);
     } catch (err) {
       // One broken repository must not abort the whole run
       const message = err instanceof Error ? err.message : String(err);
-      for (const project of group.projects) {
+      return group.projects.map((project) => {
         consola.error(`${project.name}: Unexpected failure — ${message}`);
-        reports.push(failedReport(project, message));
-      }
+        return failedReport(project, message);
+      });
     }
-  }
+  });
+
+  reports.push(...grouped.flat());
 
   printSummary(reports);
 
@@ -126,9 +132,38 @@ export async function runPipeline(
     consola.info(
       `[dry-run] would write ${path.basename(basePath)}.json and .html to ${path.dirname(basePath)}`,
     );
+  } else if (!config.reportPath) {
+    // Writing nothing and saying nothing about it reads as a bug, especially
+    // for a run whose whole output scrolled past.
+    consola.info(
+      'Console output only — set "reportPath" or pass --report <path> to save JSON and HTML reports.',
+    );
   }
 
   return reports;
+}
+
+/**
+ * How many repositories may be processed at once.
+ *
+ * Parallelism is allowed only when nothing will write to git. Branching,
+ * stashing and committing move HEAD, and even across separate repositories
+ * the interleaved prompts — "stash these changes?" — would be unanswerable.
+ * Auditing and, in a dry run, everything else is read-mostly and safe.
+ */
+function concurrencyFor(config: WizardConfig, groups: number): number {
+  const requested = Math.max(1, Math.trunc(config.concurrency ?? 1));
+  if (requested === 1) return 1;
+
+  const writesGit = !config.dryRun && (config.gitBranch || config.gitCommit);
+  if (writesGit) {
+    consola.info(
+      "Concurrency ignored — git operations are enabled, and those have to run one repository at a time. Use --no-git or --dry-run to parallelise.",
+    );
+    return 1;
+  }
+
+  return Math.min(requested, Math.max(1, groups));
 }
 
 function failedReport(project: ProjectInfo, message: string): ProjectReport {

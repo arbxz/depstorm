@@ -36,43 +36,48 @@ function isReactNative(pkg: Record<string, unknown>): boolean {
 }
 
 /**
- * Pick the best verification strategy for a project:
- * - React Native / Expo → typecheck or lint (no native build without SDKs)
- * - Regular project → the build script
+ * Scripts worth running to prove a dependency change did not break anything,
+ * best evidence first.
+ *
+ * React Native and Expo have no build that runs without native SDKs, so they
+ * start further down the list.
+ */
+const VERIFY_SCRIPTS = ["build", "typecheck", "test"] as const;
+const RN_VERIFY_SCRIPTS = ["typecheck", "lint", "test"] as const;
+
+/**
+ * Pick the best verification strategy for a project.
+ *
+ * The chain matters: only checking for a `build` script meant every project
+ * without one was committed with no verification at all and reported as
+ * "skipped" — technically honest, but a large share of libraries and every
+ * app using a bundler-less setup fell into it.
  */
 async function pickVerifyCommand(
   project: ProjectInfo,
   pkg: Record<string, unknown>,
 ): Promise<{ label: string; bin: string; args: string[] } | null> {
   const scripts = (pkg.scripts ?? {}) as Record<string, string>;
+  const candidates = isReactNative(pkg) ? RN_VERIFY_SCRIPTS : VERIFY_SCRIPTS;
 
-  if (isReactNative(pkg)) {
-    for (const script of ["typecheck", "lint"] as const) {
-      if (scripts[script]) {
-        return {
-          label: script,
-          bin: project.packageManager,
-          args: ["run", script],
-        };
-      }
+  for (const script of candidates) {
+    if (scripts[script]) {
+      return {
+        label: script,
+        bin: project.packageManager,
+        args: ["run", script],
+      };
     }
-
-    const hasTsConfig = await fs
-      .access(path.join(project.path, "tsconfig.json"))
-      .then(() => true)
-      .catch(() => false);
-    if (hasTsConfig) {
-      return { label: "tsc --noEmit", bin: "npx", args: ["tsc", "--noEmit"] };
-    }
-    return null;
   }
 
-  if (scripts["build"]) {
-    return {
-      label: "build",
-      bin: project.packageManager,
-      args: ["run", "build"],
-    };
+  // No script to lean on, but a TypeScript project can still be type-checked,
+  // which catches the shape of breakage a dependency bump usually causes.
+  const hasTsConfig = await fs
+    .access(path.join(project.path, "tsconfig.json"))
+    .then(() => true)
+    .catch(() => false);
+  if (hasTsConfig) {
+    return { label: "tsc --noEmit", bin: "npx", args: ["tsc", "--noEmit"] };
   }
 
   return null;
@@ -91,10 +96,11 @@ export async function verifyBuild(project: ProjectInfo): Promise<BuildResult> {
   const cmd = await pickVerifyCommand(project, pkg);
 
   if (!cmd) {
-    const reason = isReactNative(pkg)
-      ? "React Native project — no typecheck/lint script available, skipping"
-      : "No build script — skipped";
-    consola.info(`${project.name}: ${reason}`);
+    const tried = (
+      isReactNative(pkg) ? RN_VERIFY_SCRIPTS : VERIFY_SCRIPTS
+    ).join(", ");
+    const reason = `No ${tried} script and no tsconfig.json — nothing to verify, so this fix is UNVERIFIED`;
+    consola.warn(`${project.name}: ${reason}`);
     return { success: true, skipped: true, output: reason };
   }
 

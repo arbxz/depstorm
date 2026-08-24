@@ -206,6 +206,11 @@ export interface WizardConfig {
   autoStash: boolean;
   /** Max directory scan depth (levels below each root) */
   scanDepth: number;
+  /**
+   * How many repositories to process at once. Only honoured when nothing
+   * writes to git — see concurrencyFor in pipeline.ts.
+   */
+  concurrency?: number;
   /** Directories to exclude from scanning */
   excludeDirs: string[];
   /** Output report path (extension is added automatically) */

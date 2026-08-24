@@ -159,6 +159,19 @@ export function mergeConfig(raw: unknown, source = "config"): WizardConfig {
     }
   }
 
+  const concurrency = input.concurrency;
+  if (concurrency !== undefined) {
+    if (
+      typeof concurrency !== "number" ||
+      !Number.isInteger(concurrency) ||
+      concurrency < 1
+    ) {
+      problems.push(`"concurrency" must be an integer of 1 or more`);
+    } else {
+      config.concurrency = concurrency;
+    }
+  }
+
   const branches = input.projectBranches;
   if (branches !== undefined) {
     if (

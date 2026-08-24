@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import consola from "consola";
+import { Semaphore } from "./semaphore.js";
 import type { PackageManager, ProjectInfo, WizardConfig } from "./types.js";
 
 const LOCKFILE_MAP: Record<string, PackageManager> = {
@@ -11,35 +12,6 @@ const LOCKFILE_MAP: Record<string, PackageManager> = {
 
 /** Cap on concurrent directory reads so large trees can't exhaust file handles */
 const IO_CONCURRENCY = 16;
-
-class Semaphore {
-  private waiters: Array<() => void> = [];
-
-  constructor(private slots: number) {}
-
-  async run<T>(fn: () => Promise<T>): Promise<T> {
-    await this.acquire();
-    try {
-      return await fn();
-    } finally {
-      this.release();
-    }
-  }
-
-  private async acquire(): Promise<void> {
-    if (this.slots > 0) {
-      this.slots--;
-      return;
-    }
-    await new Promise<void>((resolve) => this.waiters.push(resolve));
-  }
-
-  private release(): void {
-    const next = this.waiters.shift();
-    if (next) next();
-    else this.slots++;
-  }
-}
 
 const io = new Semaphore(IO_CONCURRENCY);
 

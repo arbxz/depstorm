@@ -86,16 +86,30 @@ export async function restoreProjectFiles(
   backups: FileBackup[],
   config: WizardConfig,
 ): Promise<InstallResult> {
+  let changed = false;
+
   for (const { original, backup } of backups) {
     try {
+      // A fix that resolved nothing often leaves the files exactly as it found
+      // them. Reinstalling then costs minutes on a large tree and changes
+      // nothing, so the restore only triggers one when something differs.
+      if (!(await sameContents(original, backup))) changed = true;
       await fs.copyFile(backup, original);
       await fs.unlink(backup);
     } catch (err) {
+      changed = true;
       consola.error(`Failed to restore ${original}: ${err}`);
     }
   }
 
   if (backups.length === 0) return { ok: true };
+
+  if (!changed) {
+    consola.debug(
+      `${project.name}: Nothing was modified — skipping the reinstall`,
+    );
+    return { ok: true };
+  }
 
   consola.info(`${project.name}: Reinstalling from restored lockfile...`);
   const install = await runInstall(project, config);
@@ -107,6 +121,18 @@ export async function restoreProjectFiles(
   }
 
   return install;
+}
+
+/** Whether two files hold exactly the same bytes. */
+async function sameContents(a: string, b: string): Promise<boolean> {
+  try {
+    const [left, right] = await Promise.all([fs.readFile(a), fs.readFile(b)]);
+    return left.equals(right);
+  } catch {
+    // If either side cannot be read, assume a difference and reinstall —
+    // an unnecessary install is cheaper than a stale node_modules.
+    return false;
+  }
 }
 
 export async function cleanupBackups(backups: FileBackup[]): Promise<void> {
