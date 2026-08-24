@@ -4,6 +4,52 @@ import type { DepstormConfig, ProjectInfo } from "./types.js";
 const COMMON_BRANCHES = ["main", "master", "develop", "production"];
 
 /**
+ * Ask a yes/no question.
+ *
+ * Confirmations must never self-approve. consola returns the `initial` value
+ * when there is no TTY, which silently green-lit merges in CI.
+ */
+export async function confirm(
+  message: string,
+  options: { assumeYes?: boolean } = {},
+): Promise<boolean> {
+  if (options.assumeYes) return true;
+
+  if (!process.stdin.isTTY) {
+    consola.warn(`${message} — no TTY to confirm. Pass --yes to proceed.`);
+    return false;
+  }
+
+  return (await consola.prompt(message, {
+    type: "confirm",
+    initial: true,
+  })) as unknown as boolean;
+}
+
+/**
+ * Let the user narrow a discovered list. Everything is pre-selected, so the
+ * default answer matches what depstorm used to do unconditionally.
+ */
+export async function selectProjects(
+  projects: ProjectInfo[],
+  message: string,
+): Promise<ProjectInfo[]> {
+  if (projects.length === 1) return projects;
+
+  const selected = (await consola.prompt(message, {
+    type: "multiselect",
+    initial: projects.map((p) => p.path),
+    options: projects.map((p) => ({
+      label: p.name,
+      value: p.path,
+      hint: p.packageManager,
+    })),
+  })) as unknown as string[] | undefined;
+
+  return projects.filter((p) => selected?.includes(p.path));
+}
+
+/**
  * Prompt the user to choose a source branch for pulling before fixes.
  * Supports global (all projects) or per-project branch selection.
  */
