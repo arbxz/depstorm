@@ -39,10 +39,11 @@ describe("parseNpmAudit", () => {
       url: "https://example.test/1",
       range: "<4.17.21",
       fixAvailable: true,
+      fixIsBreaking: false,
     });
   });
 
-  it("treats an object fixAvailable as fixable", () => {
+  it("treats a non-major object fixAvailable as plainly fixable", () => {
     const [vuln] = parseNpmAudit({
       vulnerabilities: {
         pkg: {
@@ -53,6 +54,25 @@ describe("parseNpmAudit", () => {
     });
 
     assert.equal(vuln?.fixAvailable, true);
+    assert.equal(vuln?.fixIsBreaking, false);
+  });
+
+  it("flags a semver-major remedy as breaking", () => {
+    const [vuln] = parseNpmAudit({
+      vulnerabilities: {
+        pkg: {
+          severity: "high",
+          fixAvailable: { name: "pkg", version: "3.0.0", isSemVerMajor: true },
+        },
+      },
+    });
+
+    assert.equal(
+      vuln?.fixAvailable,
+      true,
+      "a fix does exist — it just is not one `audit fix` will take",
+    );
+    assert.equal(vuln?.fixIsBreaking, true);
   });
 
   it("falls back to the nested `via` advisory for transitive vulnerabilities", () => {
@@ -163,6 +183,32 @@ describe("parseYarnAudit", () => {
     const stdout = ["not json at all", "{ broken", "", advisory("ok", "low")].join("\n");
 
     assert.equal(parseYarnAudit(stdout).length, 1);
+  });
+});
+
+describe("fixability counting", () => {
+  it("keeps breaking remedies out of fixableCount", () => {
+    const vulns = parseNpmAudit({
+      vulnerabilities: {
+        a: { severity: "high", fixAvailable: true },
+        b: {
+          severity: "critical",
+          fixAvailable: { name: "b", version: "9.0.0", isSemVerMajor: true },
+        },
+        c: { severity: "low", fixAvailable: false },
+      },
+    });
+
+    const fixable = vulns.filter((v) => v.fixAvailable && !v.fixIsBreaking);
+    const breaking = vulns.filter((v) => v.fixIsBreaking);
+
+    assert.equal(fixable.length, 1);
+    assert.equal(breaking.length, 1);
+    assert.equal(
+      vulns.filter((v) => v.fixAvailable).length,
+      2,
+      "the raw fixAvailable count is what used to be reported, and it over-promised",
+    );
   });
 });
 

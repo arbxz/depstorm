@@ -85,7 +85,7 @@ export async function restoreProjectFiles(
   project: ProjectInfo,
   backups: FileBackup[],
   config: WizardConfig,
-): Promise<void> {
+): Promise<InstallResult> {
   for (const { original, backup } of backups) {
     try {
       await fs.copyFile(backup, original);
@@ -95,10 +95,18 @@ export async function restoreProjectFiles(
     }
   }
 
-  if (backups.length > 0) {
-    consola.info(`${project.name}: Reinstalling from restored lockfile...`);
-    await runInstall(project, config);
+  if (backups.length === 0) return { ok: true };
+
+  consola.info(`${project.name}: Reinstalling from restored lockfile...`);
+  const install = await runInstall(project, config);
+
+  if (!install.ok) {
+    consola.error(
+      `${project.name}: Reinstall after restore FAILED — node_modules no longer matches the restored lockfile. Run "${project.packageManager} install" here before trusting this checkout.\n${install.message ?? ""}`,
+    );
   }
+
+  return install;
 }
 
 export async function cleanupBackups(backups: FileBackup[]): Promise<void> {
@@ -145,24 +153,60 @@ export function canAttemptFix(
     };
   }
   if (auditResult.fixableCount === 0) {
+    // Distinguishing this from "nothing is fixable" matters: the user *can*
+    // act on it, just not by re-running depstorm.
+    if (auditResult.breakingFixCount > 0) {
+      const n = auditResult.breakingFixCount;
+      return {
+        ok: false,
+        reason: `${n} vulnerabilit${n === 1 ? "y" : "ies"} can only be fixed by a semver-major upgrade, which "${project.packageManager} audit fix" will not apply — upgrade the reported packages manually`,
+      };
+    }
     return { ok: false, reason: "No auto-fixable vulnerabilities" };
   }
   return { ok: true };
 }
 
+export interface InstallResult {
+  ok: boolean;
+  /** Why the install failed, when ok === false */
+  message?: string;
+}
+
+/**
+ * Reinstall so node_modules matches the lockfile on disk.
+ *
+ * The outcome is returned rather than discarded: a failed install leaves
+ * node_modules describing a different dependency tree than the lockfile, and
+ * every caller here goes on to either verify a build or declare a revert
+ * complete. Silently continuing made both of those claims untrue.
+ */
 export async function runInstall(
   project: ProjectInfo,
   config: WizardConfig,
-): Promise<void> {
+): Promise<InstallResult> {
   const args = ["install"];
   // Installing runs third-party lifecycle scripts. Off unless asked for.
   if (!config.allowInstallScripts) args.push("--ignore-scripts");
+  // pnpm turns on --frozen-lockfile by itself when CI=true. A fix rewrites
+  // package.json on purpose, so a frozen install is guaranteed to fail there.
+  if (project.packageManager === "pnpm") args.push("--no-frozen-lockfile");
 
-  await execa(project.packageManager, args, {
+  const result = await execa(project.packageManager, args, {
     cwd: project.path,
     reject: false,
     timeout: FIX_TIMEOUT_MS,
   });
+
+  if (result.exitCode === 0) return { ok: true };
+
+  const message =
+    (result.stderr ?? "").trim().slice(-500) ||
+    (result.stdout ?? "").trim().slice(-500) ||
+    result.message ||
+    `${project.packageManager} install exited with ${String(result.exitCode)}`;
+
+  return { ok: false, message };
 }
 
 function skipped(reason: string, auditResult: AuditResult): FixResult {
@@ -217,8 +261,23 @@ export async function applyFix(
       );
     }
 
-    // Re-install so node_modules matches the rewritten lockfile
-    await runInstall(project, config);
+    // Re-install so node_modules matches the rewritten lockfile. If this
+    // fails, the re-audit below would be measuring the *old* tree, so the
+    // only honest outcome is an error — not "fix ran but nothing changed".
+    const install = await runInstall(project, config);
+    if (!install.ok) {
+      consola.error(
+        `${project.name}: Reinstall after the fix failed — ${install.message ?? "unknown error"}`,
+      );
+      return {
+        applied: false,
+        fixedCount: 0,
+        remainingCount: auditResult.totalCount,
+        remainingBySeverity: auditResult.bySeverity,
+        verified: false,
+        error: `Reinstall after "${project.packageManager} audit fix" failed: ${install.message ?? "unknown error"}`,
+      };
+    }
 
     // Confirm what actually changed rather than assuming every fixable
     // vulnerability was fixed — `audit fix` routinely fixes fewer.

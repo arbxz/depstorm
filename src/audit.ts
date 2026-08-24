@@ -12,12 +12,19 @@ import {
 const AUDIT_TIMEOUT_MS = 3 * 60 * 1000;
 const MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
 
+interface NpmFixAvailable {
+  name?: string;
+  version?: string;
+  /** npm's own signal that the fix is a semver-major bump */
+  isSemVerMajor?: boolean;
+}
+
 interface NpmAuditVuln {
   severity?: string;
   title?: string;
   url?: string;
   range?: string;
-  fixAvailable?: boolean | { name: string; version: string };
+  fixAvailable?: boolean | NpmFixAvailable;
   via?: Array<string | { title?: string; url?: string; severity?: string }>;
 }
 
@@ -52,18 +59,33 @@ export function parseNpmAudit(json: NpmAuditJson): Vulnerability[] {
         typeof v === "object" && v !== null,
     );
 
+    // npm reports a semver-major remedy as an object carrying isSemVerMajor.
+    // `npm audit fix` will not apply those without --force, so treating them
+    // as plainly fixable promised a fix that never came.
+    const fix = data.fixAvailable;
+    const fixIsBreaking =
+      typeof fix === "object" && fix !== null && fix.isSemVerMajor === true;
+
     return {
       name,
       severity: toSeverity(data.severity ?? advisory?.severity),
       title: data.title ?? advisory?.title ?? name,
       url: data.url ?? advisory?.url ?? "",
       range: data.range ?? "*",
-      fixAvailable: Boolean(data.fixAvailable),
+      fixAvailable: Boolean(fix),
+      fixIsBreaking,
     };
   });
 }
 
-/** @internal exported for tests */
+/**
+ * @internal exported for tests
+ *
+ * `patched_versions` only says a patched release exists — it carries no signal
+ * about whether reaching it crosses a major. Breaking-ness is therefore left
+ * unknown (false) for pnpm, and the post-fix re-audit remains the source of
+ * truth for what actually changed.
+ */
 export function parsePnpmAudit(json: PnpmAuditJson): Vulnerability[] {
   return Object.values(json.advisories ?? {}).map((advisory) => ({
     name: advisory.module_name ?? "unknown",
@@ -72,6 +94,7 @@ export function parsePnpmAudit(json: PnpmAuditJson): Vulnerability[] {
     url: advisory.url ?? "",
     range: advisory.vulnerable_versions ?? "*",
     fixAvailable: Boolean(advisory.patched_versions),
+    fixIsBreaking: false,
   }));
 }
 
@@ -111,6 +134,7 @@ export function parseYarnAudit(stdout: string): Vulnerability[] {
       range: advisory.vulnerable_versions ?? "*",
       // Yarn has no non-interactive `audit fix`; see applyFix.
       fixAvailable: false,
+      fixIsBreaking: false,
     });
   }
 
@@ -122,9 +146,31 @@ function failed(message: string): AuditResult {
     vulnerabilities: [],
     totalCount: 0,
     fixableCount: 0,
+    breakingFixCount: 0,
     bySeverity: emptySeverityMap(),
     error: message,
   };
+}
+
+/**
+ * Describe fixability without over-promising.
+ *
+ * pnpm's advisory feed only reports that a patched release exists, so its
+ * "fixable" number is weaker evidence than npm's — the wording says so rather
+ * than implying `audit fix` will clear them all.
+ */
+function describeFixability(
+  packageManager: ProjectInfo["packageManager"],
+  fixableCount: number,
+  breakingFixCount: number,
+): string {
+  const label =
+    packageManager === "pnpm" ? "with a published patch" : "fixable";
+  const parts = [`${fixableCount} ${label}`];
+  if (breakingFixCount > 0) {
+    parts.push(`${breakingFixCount} require a breaking upgrade`);
+  }
+  return parts.join(", ");
 }
 
 export async function runAudit(
@@ -176,6 +222,7 @@ export async function runAudit(
       vulnerabilities: [],
       totalCount: 0,
       fixableCount: 0,
+      breakingFixCount: 0,
       bySeverity: emptySeverityMap(),
     };
   }
@@ -214,16 +261,26 @@ export async function runAudit(
     bySeverity[v.severity]++;
   }
 
-  const fixableCount = vulnerabilities.filter((v) => v.fixAvailable).length;
+  // A breaking fix is not something `audit fix` will apply, so it is counted
+  // separately instead of inflating the number of fixes depstorm can deliver.
+  const fixableCount = vulnerabilities.filter(
+    (v) => v.fixAvailable && !v.fixIsBreaking,
+  ).length;
+  const breakingFixCount = vulnerabilities.filter((v) => v.fixIsBreaking).length;
 
   log.info(
-    `${project.name}: ${vulnerabilities.length} vulnerabilities found (${fixableCount} fixable)`,
+    `${project.name}: ${vulnerabilities.length} vulnerabilities found (${describeFixability(
+      project.packageManager,
+      fixableCount,
+      breakingFixCount,
+    )})`,
   );
 
   return {
     vulnerabilities,
     totalCount: vulnerabilities.length,
     fixableCount,
+    breakingFixCount,
     bySeverity,
   };
 }

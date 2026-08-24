@@ -102,6 +102,12 @@ export function printSummary(reports: ProjectReport[]): void {
       printSeverityCounts(audit.bySeverity);
     }
 
+    if (audit.breakingFixCount > 0) {
+      console.log(
+        `    ⬆️  ${audit.breakingFixCount} need a semver-major upgrade (audit fix will not apply these)`,
+      );
+    }
+
     if (fix) {
       if (fix.applied && reverted) {
         console.log(
@@ -146,6 +152,15 @@ export function printSummary(reports: ProjectReport[]): void {
 
     if (report.fixBranch) {
       console.log(`    🌿 Branch: ${report.fixBranch}`);
+    }
+
+    if (report.revertIncomplete) {
+      // The manifest is back but node_modules is not — the checkout is in a
+      // state no other message here describes, so it gets its own line.
+      console.log(
+        `    🚨 REVERT INCOMPLETE — run "${project.packageManager} install" in this project`,
+      );
+      console.log(`       ${report.revertIncomplete}`);
     }
 
     console.log();
@@ -362,7 +377,13 @@ export async function saveHtmlReport(
                      <td><span class="pill" style="--pill:${SEVERITY_HEX[v.severity] ?? SEVERITY_HEX.info}">${escapeHtml(v.severity)}</span></td>
                      <td><code>${escapeHtml(v.range)}</code></td>
                      <td>${escapeHtml(v.title)}</td>
-                     <td>${v.fixAvailable ? `<span class="ok">available</span>` : `<span class="muted">none</span>`}</td>
+                     <td>${
+                       v.fixIsBreaking
+                         ? `<span class="bad" title="Only a semver-major upgrade resolves this — audit fix will not apply it">breaking</span>`
+                         : v.fixAvailable
+                           ? `<span class="ok">available</span>`
+                           : `<span class="muted">none</span>`
+                     }</td>
                    </tr>`,
                  )
                  .join("")}

@@ -64,6 +64,7 @@ export async function runPipeline(
           vulnerabilities: [],
           totalCount: 0,
           fixableCount: 0,
+          breakingFixCount: 0,
           bySeverity: emptySeverityMap(),
           error: message,
         },
@@ -95,6 +96,7 @@ function coveredByWorkspace(root: string): AuditResult {
     vulnerabilities: [],
     totalCount: 0,
     fixableCount: 0,
+    breakingFixCount: 0,
     bySeverity: emptySeverityMap(),
     coveredBy: root,
   };
@@ -201,7 +203,7 @@ async function processProject(
 
       if (!report.build.success && config.revertOnFailure) {
         consola.warn(`${project.name}: Build failed, reverting changes`);
-        await revertFix(project, backups, config);
+        report.revertIncomplete = await revertFix(project, backups, config);
         report.reverted = true;
         return report;
       }
@@ -247,17 +249,25 @@ async function revertFix(
   project: ProjectInfo,
   backups: FileBackup[],
   config: WizardConfig,
-): Promise<void> {
+): Promise<string | undefined> {
   const touched = await listTouchedFiles(project.path);
 
   if (project.hasGit) {
     await revertTouchedFiles(project, touched);
     await cleanupBackups(backups);
     consola.info(`${project.name}: Reinstalling from restored lockfile...`);
-    await runInstall(project, config);
-  } else {
-    await restoreProjectFiles(project, backups, config);
+    const install = await runInstall(project, config);
+    if (!install.ok) {
+      consola.error(
+        `${project.name}: Reinstall after revert FAILED — the manifest and lockfile are restored but node_modules is not. Run "${project.packageManager} install" here.\n${install.message ?? ""}`,
+      );
+      return install.message ?? "reinstall after revert failed";
+    }
+    return undefined;
   }
+
+  const install = await restoreProjectFiles(project, backups, config);
+  return install.ok ? undefined : (install.message ?? "reinstall after revert failed");
 }
 
 /**
