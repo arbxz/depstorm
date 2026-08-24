@@ -3,6 +3,7 @@
 import consola from "consola";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { installSignalHandlers } from "./cleanup.js";
 import { loadConfig, normaliseGitFlags, resolveRoots } from "./config.js";
 import { discoverProjects, resolveExplicitProjects } from "./discover.js";
 import { hasBranch, mergeBranch, pushBranch } from "./git.js";
@@ -914,6 +915,10 @@ async function getProjects(
 }
 
 // ── Entry point ────────────────────────────────────────────────────────
+// Registered before any work starts so an interrupt during the very first
+// project still unwinds the branch, stash and backups it created.
+installSignalHandlers();
+
 const run = process.argv.length > 2 ? cliMode : interactiveMode;
 
 run().catch((err: unknown) => {

@@ -1,5 +1,10 @@
 import consola from "consola";
 import path from "node:path";
+import {
+  registerCleanup,
+  unregisterCleanup,
+  type PendingCleanup,
+} from "./cleanup.js";
 import { resolveReportBase } from "./config.js";
 import { runAudit } from "./audit.js";
 import {
@@ -30,6 +35,7 @@ import { printSummary, saveHtmlReport, saveJsonReport } from "./report.js";
 import { runSonarCheck } from "./sonar.js";
 import { verifyBuild } from "./verify.js";
 import {
+  BACKUP_SUFFIX,
   emptySeverityMap,
   type AuditResult,
   type ProjectInfo,
@@ -157,6 +163,51 @@ async function processProject(
   let stash: StashHandle | undefined;
   let fixBranch: string | undefined;
 
+  // Everything below this point holds recoverable state that only the finally
+  // block gives back — and Ctrl+C never reaches a finally block. The same
+  // unwind is registered so an interrupt can run it too.
+  const cleanup: PendingCleanup = registerCleanup({
+    describe: () => {
+      const parts = [`${project.name} (${project.path})`];
+      if (fixBranch) parts.push(`left on branch ${fixBranch}`);
+      if (originalBranch) parts.push(`return with: git checkout ${originalBranch}`);
+      if (stash) parts.push(`stashed work: ${stash.label} — git stash list`);
+      if (backups.length > 0) {
+        parts.push(`backup files left: *${BACKUP_SUFFIX}`);
+      }
+      return parts.join("; ");
+    },
+    run: async () => {
+      await unwind();
+    },
+  });
+
+  /**
+   * Hand the repository back the way it was found. Backups go first: they are
+   * untracked files depstorm created, and leaving them on disk while switching
+   * branches or popping the stash makes depstorm's own artifacts look like the
+   * user's uncommitted work.
+   *
+   * Safe to call twice — the finally block and an interrupt can race.
+   */
+  async function unwind(): Promise<void> {
+    const ourBackups = backups;
+    backups = [];
+    await cleanupBackups(ourBackups);
+
+    if (originalBranch) {
+      const branch = originalBranch;
+      originalBranch = undefined;
+      await switchBack(project, branch);
+    }
+
+    if (stash) {
+      const handle = stash;
+      stash = undefined;
+      report.stashRestore = await restoreStash(project, handle);
+    }
+  }
+
   try {
     const wantsGit = project.hasGit && (config.gitBranch || config.gitCommit);
 
@@ -231,15 +282,10 @@ async function processProject(
 
     return report;
   } finally {
-    // Always hand the repository back the way it was found. Backups go first:
-    // they are untracked files depstorm created, and leaving them on disk while
-    // switching branches or popping the stash makes depstorm's own artifacts
-    // look like the user's uncommitted work.
-    await cleanupBackups(backups);
-    if (originalBranch) await switchBack(project, originalBranch);
-    // Mutating `report` here still reaches the caller: the returns above
+    // Mutating `report` in here still reaches the caller: the returns above
     // hand back this same object reference, not a copy.
-    if (stash) report.stashRestore = await restoreStash(project, stash);
+    await unwind();
+    unregisterCleanup(cleanup);
   }
 }
 
