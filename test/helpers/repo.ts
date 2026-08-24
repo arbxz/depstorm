@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import consola from "consola";
-import type { ProjectInfo, WizardConfig } from "../../src/types.js";
+import type { DepstormConfig, ProjectInfo } from "../../src/types.js";
 import { DEFAULT_CONFIG } from "../../src/types.js";
 
 /** Keep test output readable — the modules under test log heavily */
@@ -140,7 +140,7 @@ export function projectInfo(
   };
 }
 
-export function testConfig(overrides: Partial<WizardConfig> = {}): WizardConfig {
+export function testConfig(overrides: Partial<DepstormConfig> = {}): DepstormConfig {
   return { ...DEFAULT_CONFIG, ...overrides };
 }
 

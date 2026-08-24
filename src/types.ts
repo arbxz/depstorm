@@ -176,7 +176,7 @@ export interface ProjectReport {
   gitSkippedReason?: string;
 }
 
-export interface WizardConfig {
+export interface DepstormConfig {
   /** Root directories to scan for projects */
   roots: string[];
   /** Specific project paths (bypass discovery) */
@@ -206,6 +206,16 @@ export interface WizardConfig {
   autoStash: boolean;
   /** Max directory scan depth (levels below each root) */
   scanDepth: number;
+  /**
+   * How many repositories to process at once. Only honoured when nothing
+   * writes to git — see concurrencyFor in pipeline.ts.
+   */
+  concurrency?: number;
+  /**
+   * Per-step time limits in seconds. A large monorepo routinely exceeds the
+   * defaults, and a hardcoded ceiling turns that into an unexplained failure.
+   */
+  timeouts?: Partial<Record<TimeoutStep, number>>;
   /** Directories to exclude from scanning */
   excludeDirs: string[];
   /** Output report path (extension is added automatically) */
@@ -231,7 +241,26 @@ export interface WizardConfig {
   ignore?: IgnoreRule[];
 }
 
-export const DEFAULT_CONFIG: WizardConfig = {
+export type TimeoutStep = "audit" | "install" | "build" | "sonar";
+
+/** Per-step time limits, in seconds. */
+export const DEFAULT_TIMEOUTS: Record<TimeoutStep, number> = {
+  audit: 3 * 60,
+  install: 10 * 60,
+  build: 5 * 60,
+  sonar: 5 * 60,
+};
+
+/** Resolve a step's timeout to milliseconds. */
+export function timeoutMs(
+  config: Pick<DepstormConfig, "timeouts">,
+  step: TimeoutStep,
+): number {
+  const seconds = config.timeouts?.[step] ?? DEFAULT_TIMEOUTS[step];
+  return seconds * 1000;
+}
+
+export const DEFAULT_CONFIG: DepstormConfig = {
   roots: ["."],
   severityThreshold: "high",
   autoFix: true,

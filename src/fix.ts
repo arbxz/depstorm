@@ -7,14 +7,15 @@ import {
   BACKUP_SUFFIX,
   FIXABLE_PACKAGE_MANAGERS,
   SEVERITY_ORDER,
+  timeoutMs,
   type AuditResult,
+  type DepstormConfig,
   type FixResult,
   type ProjectInfo,
   type Severity,
-  type WizardConfig,
 } from "./types.js";
 
-const FIX_TIMEOUT_MS = 10 * 60 * 1000;
+
 
 /**
  * The only files a dependency fix is allowed to change. Everything that stages,
@@ -84,18 +85,32 @@ export async function backupProjectFiles(
 export async function restoreProjectFiles(
   project: ProjectInfo,
   backups: FileBackup[],
-  config: WizardConfig,
+  config: DepstormConfig,
 ): Promise<InstallResult> {
+  let changed = false;
+
   for (const { original, backup } of backups) {
     try {
+      // A fix that resolved nothing often leaves the files exactly as it found
+      // them. Reinstalling then costs minutes on a large tree and changes
+      // nothing, so the restore only triggers one when something differs.
+      if (!(await sameContents(original, backup))) changed = true;
       await fs.copyFile(backup, original);
       await fs.unlink(backup);
     } catch (err) {
+      changed = true;
       consola.error(`Failed to restore ${original}: ${err}`);
     }
   }
 
   if (backups.length === 0) return { ok: true };
+
+  if (!changed) {
+    consola.debug(
+      `${project.name}: Nothing was modified — skipping the reinstall`,
+    );
+    return { ok: true };
+  }
 
   consola.info(`${project.name}: Reinstalling from restored lockfile...`);
   const install = await runInstall(project, config);
@@ -107,6 +122,18 @@ export async function restoreProjectFiles(
   }
 
   return install;
+}
+
+/** Whether two files hold exactly the same bytes. */
+async function sameContents(a: string, b: string): Promise<boolean> {
+  try {
+    const [left, right] = await Promise.all([fs.readFile(a), fs.readFile(b)]);
+    return left.equals(right);
+  } catch {
+    // If either side cannot be read, assume a difference and reinstall —
+    // an unnecessary install is cheaper than a stale node_modules.
+    return false;
+  }
 }
 
 export async function cleanupBackups(backups: FileBackup[]): Promise<void> {
@@ -132,7 +159,7 @@ function meetsThreshold(
 export function canAttemptFix(
   project: ProjectInfo,
   auditResult: AuditResult,
-  config: WizardConfig,
+  config: DepstormConfig,
 ): { ok: boolean; reason?: string } {
   if (auditResult.error) {
     return { ok: false, reason: "Audit failed — not attempting a fix" };
@@ -183,7 +210,7 @@ export interface InstallResult {
  */
 export async function runInstall(
   project: ProjectInfo,
-  config: WizardConfig,
+  config: DepstormConfig,
 ): Promise<InstallResult> {
   const args = ["install"];
   // Installing runs third-party lifecycle scripts. Off unless asked for.
@@ -195,7 +222,7 @@ export async function runInstall(
   const result = await execa(project.packageManager, args, {
     cwd: project.path,
     reject: false,
-    timeout: FIX_TIMEOUT_MS,
+    timeout: timeoutMs(config, "install"),
   });
 
   if (result.exitCode === 0) return { ok: true };
@@ -226,7 +253,7 @@ function skipped(reason: string, auditResult: AuditResult): FixResult {
 export async function applyFix(
   project: ProjectInfo,
   auditResult: AuditResult,
-  config: WizardConfig,
+  config: DepstormConfig,
 ): Promise<FixResult> {
   const eligibility = canAttemptFix(project, auditResult, config);
   if (!eligibility.ok) {
@@ -252,7 +279,7 @@ export async function applyFix(
     const result = await execa(project.packageManager, fixArgs, {
       cwd: project.path,
       reject: false,
-      timeout: FIX_TIMEOUT_MS,
+      timeout: timeoutMs(config, "install"),
     });
 
     if (result.exitCode !== 0 && result.stderr) {
@@ -286,6 +313,7 @@ export async function applyFix(
     const after = await runAudit(project, {
       quiet: true,
       ignore: config.ignore,
+      timeouts: config.timeouts,
     });
 
     if (after.error) {

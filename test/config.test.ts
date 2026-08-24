@@ -7,7 +7,7 @@ import {
   resolveReportBase,
   resolveRoots,
 } from "../src/config.js";
-import { DEFAULT_CONFIG } from "../src/types.js";
+import { DEFAULT_CONFIG, DEFAULT_TIMEOUTS, timeoutMs } from "../src/types.js";
 import { cleanupTempDirs, silenceLogs, testConfig } from "./helpers/repo.js";
 
 silenceLogs();
@@ -193,5 +193,51 @@ describe("mergeConfig — ignore rules", () => {
   it("validates failOnQuality like any other severity", () => {
     assert.equal(mergeConfig({ failOnQuality: "high" }).failOnQuality, "high");
     assert.throws(() => mergeConfig({ failOnQuality: "HIGH" }), /must be one of/);
+  });
+});
+
+describe("mergeConfig — timeouts and concurrency", () => {
+  it("accepts per-step timeouts in seconds", () => {
+    const config = mergeConfig({ timeouts: { install: 1800, build: 600 } });
+
+    assert.deepEqual(config.timeouts, { install: 1800, build: 600 });
+  });
+
+  it("rejects an unknown step rather than ignoring it", () => {
+    assert.throws(
+      () => mergeConfig({ timeouts: { instal: 60 } }),
+      /is not a step/,
+    );
+  });
+
+  it("rejects a non-positive timeout", () => {
+    assert.throws(() => mergeConfig({ timeouts: { build: 0 } }), /positive/);
+    assert.throws(() => mergeConfig({ timeouts: { build: -1 } }), /positive/);
+  });
+
+  it("accepts a concurrency of one or more", () => {
+    assert.equal(mergeConfig({ concurrency: 4 }).concurrency, 4);
+  });
+
+  it("rejects a concurrency below one", () => {
+    assert.throws(() => mergeConfig({ concurrency: 0 }), /1 or more/);
+    assert.throws(() => mergeConfig({ concurrency: 2.5 }), /1 or more/);
+  });
+});
+
+describe("timeoutMs", () => {
+  it("falls back to the default for a step with no override", () => {
+    assert.equal(timeoutMs({}, "build"), DEFAULT_TIMEOUTS.build * 1000);
+  });
+
+  it("uses an override, converted to milliseconds", () => {
+    assert.equal(timeoutMs({ timeouts: { build: 90 } }, "build"), 90_000);
+  });
+
+  it("leaves other steps on their defaults", () => {
+    assert.equal(
+      timeoutMs({ timeouts: { build: 90 } }, "audit"),
+      DEFAULT_TIMEOUTS.audit * 1000,
+    );
   });
 });

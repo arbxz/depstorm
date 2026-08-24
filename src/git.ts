@@ -4,7 +4,7 @@ import { BACKUP_SUFFIX } from "./types.js";
 import type {
   ProjectInfo,
   RestoreStashResult,
-  WizardConfig,
+  DepstormConfig,
 } from "./types.js";
 
 export type { RestoreStashResult };
@@ -55,7 +55,7 @@ async function baseBranchName(git: SimpleGit): Promise<string> {
  */
 export function getSourceBranch(
   project: ProjectInfo,
-  config: WizardConfig,
+  config: DepstormConfig,
 ): string | undefined {
   return config.projectBranches?.[project.name] ?? config.sourceBranch;
 }
@@ -83,7 +83,7 @@ export async function hasBranch(
  */
 export async function ensureCleanTree(
   project: ProjectInfo,
-  config: WizardConfig,
+  config: DepstormConfig,
 ): Promise<{ ok: boolean; stash?: StashHandle }> {
   const git = getGit(project);
   const status = await git.status();
