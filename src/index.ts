@@ -19,10 +19,10 @@ import {
   DEFAULT_CONFIG,
   isSeverity,
   SEVERITIES,
+  type DepstormConfig,
   type ProjectInfo,
   type ProjectReport,
   type Severity,
-  type WizardConfig,
 } from "./types.js";
 
 const require = createRequire(import.meta.url);
@@ -146,7 +146,7 @@ async function runMerge(
  * Translate a completed run into a process exit code so depstorm is usable
  * as a CI gate instead of always reporting success.
  */
-function applyExitCode(reports: ProjectReport[], config: WizardConfig): void {
+function applyExitCode(reports: ProjectReport[], config: DepstormConfig): void {
   // A working tree depstorm could not hand back intact outranks everything
   // else here: the user has conflict markers or a missing stash to deal with.
   const unrestored = reports.filter((r) => r.stashRestore?.ok === false);
@@ -215,7 +215,7 @@ async function interactiveMode() {
   consola.info("Done! 👋");
 }
 
-async function interactiveIteration(config: WizardConfig): Promise<boolean> {
+async function interactiveIteration(config: DepstormConfig): Promise<boolean> {
   const action = (await consola.prompt("What would you like to do?", {
     type: "select",
     options: [
@@ -381,7 +381,7 @@ function actionScan(projects: ProjectInfo[]) {
 }
 
 // ── Action: Run ────────────────────────────────────────────────────────
-async function actionRun(projects: ProjectInfo[], config: WizardConfig) {
+async function actionRun(projects: ProjectInfo[], config: DepstormConfig) {
   const severity = (await consola.prompt("Minimum severity to fix:", {
     type: "select",
     options: [
@@ -545,7 +545,7 @@ async function actionRun(projects: ProjectInfo[], config: WizardConfig) {
   await runPipeline(projects, config);
 }
 
-function describeGit(config: WizardConfig): string {
+function describeGit(config: DepstormConfig): string {
   if (!config.gitCommit) return "off";
   const parts: string[] = [];
   if (config.gitBranch) parts.push("branch");
@@ -662,7 +662,7 @@ async function interactiveMerge(projects: ProjectInfo[]) {
   await runMerge(toMerge, fixBranch, targetBranch, pushAfter === "yes");
 }
 
-async function interactiveSchedule(config: WizardConfig) {
+async function interactiveSchedule(config: DepstormConfig) {
   const schedule = (await consola.prompt("How often should audits run?", {
     type: "select",
     options: [
@@ -964,7 +964,7 @@ function requireSeverity(value: unknown, flag: string): Severity {
 
 async function buildConfig(
   opts: Record<string, unknown>,
-): Promise<WizardConfig> {
+): Promise<DepstormConfig> {
   const config = await loadConfig(opts.config as string | undefined);
 
   if (opts.root) config.roots = opts.root as string[];
@@ -1022,7 +1022,7 @@ async function buildConfig(
 }
 
 async function getProjects(
-  config: WizardConfig,
+  config: DepstormConfig,
   opts: Record<string, unknown>,
 ): Promise<ProjectInfo[]> {
   if (opts.project) {

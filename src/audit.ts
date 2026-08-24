@@ -4,14 +4,15 @@ import { applyIgnores } from "./ignore.js";
 import {
   emptySeverityMap,
   isSeverity,
+  timeoutMs,
   type AuditResult,
+  type DepstormConfig,
   type IgnoreRule,
   type ProjectInfo,
   type Severity,
   type Vulnerability,
 } from "./types.js";
 
-const AUDIT_TIMEOUT_MS = 3 * 60 * 1000;
 const MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
 
 interface NpmFixAvailable {
@@ -183,6 +184,8 @@ export interface AuditOptions {
    * and filtering only one of them would corrupt the arithmetic.
    */
   ignore?: IgnoreRule[];
+  /** Per-step time limits, so a slow registry is configurable not fatal */
+  timeouts?: DepstormConfig["timeouts"];
 }
 
 export async function runAudit(
@@ -209,7 +212,7 @@ export async function runAudit(
     const result = await execa(project.packageManager, args, {
       cwd: project.path,
       reject: false, // audit exits non-zero when vulnerabilities exist
-      timeout: AUDIT_TIMEOUT_MS,
+      timeout: timeoutMs(options, "audit"),
       maxBuffer: MAX_OUTPUT_BYTES,
     });
     stdout = result.stdout ?? "";

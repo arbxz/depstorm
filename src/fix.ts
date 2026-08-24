@@ -7,14 +7,15 @@ import {
   BACKUP_SUFFIX,
   FIXABLE_PACKAGE_MANAGERS,
   SEVERITY_ORDER,
+  timeoutMs,
   type AuditResult,
+  type DepstormConfig,
   type FixResult,
   type ProjectInfo,
   type Severity,
-  type WizardConfig,
 } from "./types.js";
 
-const FIX_TIMEOUT_MS = 10 * 60 * 1000;
+
 
 /**
  * The only files a dependency fix is allowed to change. Everything that stages,
@@ -84,7 +85,7 @@ export async function backupProjectFiles(
 export async function restoreProjectFiles(
   project: ProjectInfo,
   backups: FileBackup[],
-  config: WizardConfig,
+  config: DepstormConfig,
 ): Promise<InstallResult> {
   let changed = false;
 
@@ -158,7 +159,7 @@ function meetsThreshold(
 export function canAttemptFix(
   project: ProjectInfo,
   auditResult: AuditResult,
-  config: WizardConfig,
+  config: DepstormConfig,
 ): { ok: boolean; reason?: string } {
   if (auditResult.error) {
     return { ok: false, reason: "Audit failed — not attempting a fix" };
@@ -209,7 +210,7 @@ export interface InstallResult {
  */
 export async function runInstall(
   project: ProjectInfo,
-  config: WizardConfig,
+  config: DepstormConfig,
 ): Promise<InstallResult> {
   const args = ["install"];
   // Installing runs third-party lifecycle scripts. Off unless asked for.
@@ -221,7 +222,7 @@ export async function runInstall(
   const result = await execa(project.packageManager, args, {
     cwd: project.path,
     reject: false,
-    timeout: FIX_TIMEOUT_MS,
+    timeout: timeoutMs(config, "install"),
   });
 
   if (result.exitCode === 0) return { ok: true };
@@ -252,7 +253,7 @@ function skipped(reason: string, auditResult: AuditResult): FixResult {
 export async function applyFix(
   project: ProjectInfo,
   auditResult: AuditResult,
-  config: WizardConfig,
+  config: DepstormConfig,
 ): Promise<FixResult> {
   const eligibility = canAttemptFix(project, auditResult, config);
   if (!eligibility.ok) {
@@ -278,7 +279,7 @@ export async function applyFix(
     const result = await execa(project.packageManager, fixArgs, {
       cwd: project.path,
       reject: false,
-      timeout: FIX_TIMEOUT_MS,
+      timeout: timeoutMs(config, "install"),
     });
 
     if (result.exitCode !== 0 && result.stderr) {
@@ -312,6 +313,7 @@ export async function applyFix(
     const after = await runAudit(project, {
       quiet: true,
       ignore: config.ignore,
+      timeouts: config.timeouts,
     });
 
     if (after.error) {

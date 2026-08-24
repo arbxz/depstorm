@@ -38,9 +38,9 @@ import {
   BACKUP_SUFFIX,
   emptySeverityMap,
   type AuditResult,
+  type DepstormConfig,
   type ProjectInfo,
   type ProjectReport,
-  type WizardConfig,
 } from "./types.js";
 
 /**
@@ -89,7 +89,7 @@ export function groupByRepository(projects: ProjectInfo[]): RepoGroup[] {
  */
 export async function runPipeline(
   projects: ProjectInfo[],
-  config: WizardConfig,
+  config: DepstormConfig,
 ): Promise<ProjectReport[]> {
   const reports: ProjectReport[] = [];
 
@@ -151,7 +151,7 @@ export async function runPipeline(
  * the interleaved prompts — "stash these changes?" — would be unanswerable.
  * Auditing and, in a dry run, everything else is read-mostly and safe.
  */
-function concurrencyFor(config: WizardConfig, groups: number): number {
+function concurrencyFor(config: DepstormConfig, groups: number): number {
   const requested = Math.max(1, Math.trunc(config.concurrency ?? 1));
   if (requested === 1) return 1;
 
@@ -243,7 +243,7 @@ export async function repoRelativeTouched(
  */
 function groupSourceBranch(
   projects: ProjectInfo[],
-  config: WizardConfig,
+  config: DepstormConfig,
 ): string | undefined {
   const named = projects
     .map((project) => config.projectBranches?.[project.name])
@@ -262,7 +262,7 @@ function groupSourceBranch(
 /** Audit (and optionally lint) a single project. Performs no writes. */
 async function auditProject(
   project: ProjectInfo,
-  config: WizardConfig,
+  config: DepstormConfig,
 ): Promise<ProjectReport> {
   const report: ProjectReport = {
     project,
@@ -270,7 +270,10 @@ async function auditProject(
     // so a standalone audit here can only fail. The root is audited separately.
     audit: project.workspaceRoot
       ? coveredByWorkspace(project.workspaceRoot)
-      : await runAudit(project, { ignore: config.ignore }),
+      : await runAudit(project, {
+          ignore: config.ignore,
+          timeouts: config.timeouts,
+        }),
     reverted: false,
     timestamp: new Date().toISOString(),
   };
@@ -282,7 +285,7 @@ async function auditProject(
   }
 
   if (config.sonarCheck) {
-    report.sonar = await runSonarCheck(project);
+    report.sonar = await runSonarCheck(project, config);
   }
 
   if (report.audit.error) {
@@ -296,7 +299,7 @@ async function auditProject(
 
 async function processGroup(
   group: RepoGroup,
-  config: WizardConfig,
+  config: DepstormConfig,
   advance: () => number,
   total: number,
 ): Promise<ProjectReport[]> {
@@ -448,7 +451,7 @@ async function processGroup(
       }
 
       if (config.verifyBuild) {
-        report.build = await verifyBuild(project);
+        report.build = await verifyBuild(project, config);
 
         if (!report.build.success && config.revertOnFailure) {
           consola.warn(`${project.name}: Build failed, reverting changes`);
@@ -487,7 +490,7 @@ async function processGroup(
 async function commitStep(
   repo: ProjectInfo,
   applied: ProjectReport[],
-  config: WizardConfig,
+  config: DepstormConfig,
   fixBranch: string | undefined,
   group: RepoGroup,
 ): Promise<void> {
@@ -524,7 +527,7 @@ async function revertFix(
   project: ProjectInfo,
   repo: ProjectInfo | undefined,
   backups: FileBackup[],
-  config: WizardConfig,
+  config: DepstormConfig,
 ): Promise<string | undefined> {
   if (repo) {
     const touched = await repoRelativeTouched(project, repo.path);
@@ -555,7 +558,7 @@ async function revertFix(
  */
 async function mergeStep(
   repo: ProjectInfo,
-  config: WizardConfig,
+  config: DepstormConfig,
   fixBranch: string | undefined,
   group: RepoGroup,
 ): Promise<void> {

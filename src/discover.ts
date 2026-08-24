@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import consola from "consola";
 import { Semaphore } from "./semaphore.js";
-import type { PackageManager, ProjectInfo, WizardConfig } from "./types.js";
+import type { DepstormConfig, PackageManager, ProjectInfo } from "./types.js";
 
 const LOCKFILE_MAP: Record<string, PackageManager> = {
   "pnpm-lock.yaml": "pnpm",
@@ -170,7 +170,7 @@ async function toProjectInfo(
 async function scanDir(
   dir: string,
   remaining: number,
-  config: WizardConfig,
+  config: DepstormConfig,
   results: ProjectInfo[],
 ): Promise<void> {
   const pkgPath = path.join(dir, "package.json");
@@ -218,7 +218,7 @@ async function scanDir(
  */
 export async function discoverProjects(
   roots: string[],
-  config: WizardConfig,
+  config: DepstormConfig,
 ): Promise<ProjectInfo[]> {
   const projects: ProjectInfo[] = [];
   const seen = new Set<string>();

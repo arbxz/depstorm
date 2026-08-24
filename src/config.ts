@@ -4,11 +4,15 @@ import path from "node:path";
 import { expiredRules, parseIgnoreRules } from "./ignore.js";
 import {
   DEFAULT_CONFIG,
+  DEFAULT_TIMEOUTS,
   SEVERITIES,
   isSeverity,
+  type DepstormConfig,
   type Severity,
-  type WizardConfig,
+  type TimeoutStep,
 } from "./types.js";
+
+const TIMEOUT_STEPS = Object.keys(DEFAULT_TIMEOUTS) as TimeoutStep[];
 
 const MODULE_NAME = "depstorm";
 
@@ -30,7 +34,7 @@ const explorer = cosmiconfig(MODULE_NAME, {
   ],
 });
 
-export async function loadConfig(configPath?: string): Promise<WizardConfig> {
+export async function loadConfig(configPath?: string): Promise<DepstormConfig> {
   try {
     const result = configPath
       ? await explorer.load(configPath)
@@ -61,7 +65,7 @@ export async function loadConfig(configPath?: string): Promise<WizardConfig> {
  * coerced — an unrecognised `severityThreshold` used to make every comparison
  * false, which quietly disabled fixing altogether.
  */
-export function mergeConfig(raw: unknown, source = "config"): WizardConfig {
+export function mergeConfig(raw: unknown, source = "config"): DepstormConfig {
   const problems: string[] = [];
 
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
@@ -69,7 +73,7 @@ export function mergeConfig(raw: unknown, source = "config"): WizardConfig {
   }
 
   const input = raw as Record<string, unknown>;
-  const config: WizardConfig = { ...DEFAULT_CONFIG };
+  const config: DepstormConfig = { ...DEFAULT_CONFIG };
 
   const stringArray = (key: string): string[] | undefined => {
     const value = input[key];
@@ -84,7 +88,7 @@ export function mergeConfig(raw: unknown, source = "config"): WizardConfig {
     return value as string[];
   };
 
-  const bool = (key: keyof WizardConfig): boolean | undefined => {
+  const bool = (key: keyof DepstormConfig): boolean | undefined => {
     const value = input[key];
     if (value === undefined) return undefined;
     if (typeof value !== "boolean") {
@@ -115,9 +119,9 @@ export function mergeConfig(raw: unknown, source = "config"): WizardConfig {
   };
 
   /** Assign only when the key was actually supplied, so absent stays absent */
-  const set = <K extends keyof WizardConfig>(
+  const set = <K extends keyof DepstormConfig>(
     key: K,
-    value: WizardConfig[K] | undefined,
+    value: DepstormConfig[K] | undefined,
   ): void => {
     if (value !== undefined) config[key] = value;
   };
@@ -186,6 +190,31 @@ export function mergeConfig(raw: unknown, source = "config"): WizardConfig {
     }
   }
 
+  const timeouts = input.timeouts;
+  if (timeouts !== undefined) {
+    if (
+      timeouts === null ||
+      typeof timeouts !== "object" ||
+      Array.isArray(timeouts)
+    ) {
+      problems.push(`"timeouts" must be an object of step: seconds`);
+    } else {
+      const resolved: Partial<Record<TimeoutStep, number>> = {};
+      for (const [step, value] of Object.entries(timeouts)) {
+        if (!TIMEOUT_STEPS.includes(step as TimeoutStep)) {
+          problems.push(
+            `"timeouts.${step}" is not a step (expected: ${TIMEOUT_STEPS.join(", ")})`,
+          );
+        } else if (typeof value !== "number" || !(value > 0)) {
+          problems.push(`"timeouts.${step}" must be a positive number of seconds`);
+        } else {
+          resolved[step as TimeoutStep] = value;
+        }
+      }
+      if (Object.keys(resolved).length > 0) config.timeouts = resolved;
+    }
+  }
+
   if (input.ignore !== undefined) {
     const parsed = parseIgnoreRules(input.ignore);
     problems.push(...parsed.problems);
@@ -222,7 +251,7 @@ export function mergeConfig(raw: unknown, source = "config"): WizardConfig {
  * notably `gitMerge` without `gitCommit`, which merged whatever branch the
  * user happened to be on into the source branch.
  */
-export function normaliseGitFlags(config: WizardConfig): WizardConfig {
+export function normaliseGitFlags(config: DepstormConfig): DepstormConfig {
   if (config.gitMerge && !config.gitBranch) {
     consola.warn(
       'Config: "gitMerge" requires "gitBranch" — enabling branch creation',
@@ -238,7 +267,7 @@ export function normaliseGitFlags(config: WizardConfig): WizardConfig {
   return config;
 }
 
-export function resolveRoots(config: WizardConfig, cwd: string): string[] {
+export function resolveRoots(config: DepstormConfig, cwd: string): string[] {
   return config.roots.map((root) =>
     path.isAbsolute(root) ? root : path.resolve(cwd, root),
   );

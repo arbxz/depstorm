@@ -2,9 +2,8 @@ import { execa } from "execa";
 import fs from "node:fs/promises";
 import path from "node:path";
 import consola from "consola";
-import type { BuildResult, ProjectInfo } from "./types.js";
+import { timeoutMs, type BuildResult, type DepstormConfig, type ProjectInfo } from "./types.js";
 
-const BUILD_TIMEOUT_MS = 5 * 60 * 1000;
 const MAX_OUTPUT_BYTES = 2000;
 /** How much of a failing build's output to echo to the console. */
 const BUILD_ERROR_LINES = 15;
@@ -89,7 +88,10 @@ async function pickVerifyCommand(
  * NOTE: this executes code from the target project by design. It only runs
  * for projects the user pointed depstorm at.
  */
-export async function verifyBuild(project: ProjectInfo): Promise<BuildResult> {
+export async function verifyBuild(
+  project: ProjectInfo,
+  config: Pick<DepstormConfig, "timeouts"> = {},
+): Promise<BuildResult> {
   consola.start(`Verifying build for ${project.name}...`);
 
   const pkg = await readPackageJson(project.path);
@@ -110,7 +112,7 @@ export async function verifyBuild(project: ProjectInfo): Promise<BuildResult> {
     const result = await execa(cmd.bin, cmd.args, {
       cwd: project.path,
       reject: false,
-      timeout: BUILD_TIMEOUT_MS,
+      timeout: timeoutMs(config, "build"),
     });
 
     const stdout = (result.stdout ?? "").slice(-MAX_OUTPUT_BYTES);

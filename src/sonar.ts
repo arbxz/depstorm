@@ -1,6 +1,8 @@
 import consola from "consola";
 import {
   emptySeverityMap,
+  timeoutMs,
+  type DepstormConfig,
   type ProjectInfo,
   type Severity,
   type SonarIssue,
@@ -12,8 +14,6 @@ const ESLINT_SEVERITY_MAP: Record<number, Severity> = {
   2: "high", // error
 };
 
-/** A whole lint pass has to be bounded — it walks the entire source tree. */
-const SONAR_TIMEOUT_MS = 5 * 60 * 1000;
 
 export type RuleLevel = "error" | "warn" | "off";
 
@@ -83,6 +83,7 @@ function isMissingDependency(err: unknown): boolean {
  */
 export async function runSonarCheck(
   project: ProjectInfo,
+  config: Pick<DepstormConfig, "timeouts"> = {},
 ): Promise<SonarResult> {
   consola.start(`${project.name}: Running SonarJS code quality checks…`);
 
@@ -132,7 +133,7 @@ export async function runSonarCheck(
 
     const results = await withTimeout(
       eslint.lintFiles(["."]),
-      SONAR_TIMEOUT_MS,
+      timeoutMs(config, "sonar"),
       `SonarJS check for ${project.name}`,
     );
     const issues: SonarIssue[] = [];

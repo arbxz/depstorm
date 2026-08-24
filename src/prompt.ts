@@ -1,5 +1,5 @@
 import consola from "consola";
-import type { ProjectInfo, WizardConfig } from "./types.js";
+import type { DepstormConfig, ProjectInfo } from "./types.js";
 
 const COMMON_BRANCHES = ["main", "master", "develop", "production"];
 
@@ -9,8 +9,8 @@ const COMMON_BRANCHES = ["main", "master", "develop", "production"];
  */
 export async function promptBranchSelection(
   projects: ProjectInfo[],
-  config: WizardConfig,
-): Promise<WizardConfig> {
+  config: DepstormConfig,
+): Promise<DepstormConfig> {
   const gitProjects = projects.filter((p) => p.hasGit);
 
   if (gitProjects.length === 0) {
