@@ -1,7 +1,13 @@
 import { simpleGit, type SimpleGit } from "simple-git";
 import consola from "consola";
 import { BACKUP_SUFFIX } from "./types.js";
-import type { ProjectInfo, WizardConfig } from "./types.js";
+import type {
+  ProjectInfo,
+  RestoreStashResult,
+  WizardConfig,
+} from "./types.js";
+
+export type { RestoreStashResult };
 
 function getGit(project: ProjectInfo): SimpleGit {
   return simpleGit(project.path);
@@ -203,12 +209,6 @@ async function unmergedPaths(git: SimpleGit): Promise<string[]> {
   }
 }
 
-/** Outcome of popping depstorm's stash back onto the working tree. */
-export type RestoreStashResult =
-  | { ok: true }
-  | { ok: false; reason: "missing" }
-  | { ok: false; reason: "conflict"; conflicts: string[] }
-  | { ok: false; reason: "error"; message: string };
 
 /**
  * Pop the stash depstorm created — identified by SHA, never by position.

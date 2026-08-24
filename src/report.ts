@@ -5,6 +5,7 @@ import {
   SEVERITY_ORDER,
   emptySeverityMap,
   type ProjectReport,
+  type RestoreStashResult,
   type Severity,
 } from "./types.js";
 
@@ -57,6 +58,46 @@ export function hasUnresolvedAtOrAbove(
     ([severity, count]) =>
       count > 0 && SEVERITY_ORDER[severity as Severity] >= level,
   );
+}
+
+/**
+ * Describe a stash that could not be put back.
+ *
+ * This is the user's own work in progress, so it gets plain language and a
+ * recovery command rather than a status word.
+ */
+export function describeStashFailure(
+  result: Exclude<RestoreStashResult, { ok: true }>,
+): string {
+  switch (result.reason) {
+    case "conflict":
+      return `YOUR STASHED WORK CONFLICTED — conflict markers are in ${result.conflicts.join(", ")}. The stash was kept; resolve them, then run: git stash drop`;
+    case "missing":
+      return `YOUR STASHED WORK WAS NOT FOUND — depstorm's stash is no longer in the list. Check: git stash list`;
+    case "error":
+      return `YOUR STASHED WORK COULD NOT BE RESTORED — ${result.message}. It is still in: git stash list`;
+  }
+}
+
+/**
+ * Whether a run left something a human has to deal with, and what.
+ *
+ * Kept next to the other reporting predicates so the console summary, the
+ * HTML report and the exit code all agree on what counts as a failure —
+ * "reported it in the log" is not the same as "the run succeeded".
+ */
+export function operationalFailure(
+  report: ProjectReport,
+): string | undefined {
+  if (report.stashRestore && !report.stashRestore.ok) {
+    return describeStashFailure(report.stashRestore);
+  }
+  if (report.audit.error) return `audit failed — ${report.audit.error}`;
+  if (report.fix?.error) return `fix failed — ${report.fix.error}`;
+  if (report.revertIncomplete) {
+    return `revert incomplete — ${report.revertIncomplete}`;
+  }
+  return undefined;
 }
 
 function printSeverityCounts(counts: Record<Severity, number>): void {
@@ -152,6 +193,10 @@ export function printSummary(reports: ProjectReport[]): void {
 
     if (report.fixBranch) {
       console.log(`    🌿 Branch: ${report.fixBranch}`);
+    }
+
+    if (report.stashRestore && !report.stashRestore.ok) {
+      console.log(`    🚨 ${describeStashFailure(report.stashRestore)}`);
     }
 
     if (report.revertIncomplete) {
@@ -405,6 +450,20 @@ export async function saveHtmlReport(
           ? `<pre class="build">${escapeHtml(r.build.error)}</pre>`
           : "";
 
+      // Anything that left the checkout needing manual attention leads the
+      // detail panel — it matters more than the vulnerability table below it.
+      const alerts = [
+        r.stashRestore && !r.stashRestore.ok
+          ? describeStashFailure(r.stashRestore)
+          : "",
+        r.revertIncomplete
+          ? `REVERT INCOMPLETE — the manifest and lockfile are restored but node_modules is not. Run "${r.project.packageManager} install" here. ${r.revertIncomplete}`
+          : "",
+      ]
+        .filter(Boolean)
+        .map((text) => `<p class="note bad alert">${escapeHtml(text)}</p>`)
+        .join("");
+
       return `<tbody class="row" data-status="${status}" data-name="${escapeHtml(r.project.name)}" data-path="${escapeHtml(r.project.path)}" data-vulns="${r.audit.totalCount}" data-fixed="${fixed}" data-remaining="${SEVERITY_DESC.reduce((s, k) => s + (remaining[k] ?? 0), 0)}">
         <tr class="head" tabindex="0" role="button" aria-expanded="false" aria-controls="d${i}">
           <td class="name">
@@ -422,7 +481,7 @@ export async function saveHtmlReport(
           <td class="sev">${severityBar(remaining)}</td>
           <td><span class="status s-${status}">${STATUS_LABEL[status]}</span></td>
         </tr>
-        <tr class="detail" id="d${i}" hidden><td colspan="7">${buildError}${detail}</td></tr>
+        <tr class="detail" id="d${i}" hidden><td colspan="7">${alerts}${buildError}${detail}</td></tr>
       </tbody>`;
     })
     .join("\n");
@@ -550,6 +609,7 @@ export async function saveHtmlReport(
     code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .92em; }
     .pill { font-size: .74rem; padding: .1rem .45rem; border-radius: 999px; white-space: nowrap; color: var(--text); border: 1px solid var(--pill); box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--pill) 18%, transparent); }
     .note { margin: 0; font-size: .85rem; }
+    .alert { margin: 0 0 .85rem; padding: .6rem .75rem; border: 1px solid var(--bad); border-radius: 8px; font-weight: 600; }
     pre.build { margin: 0 0 .85rem; padding: .7rem .8rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; font-size: .8rem; color: var(--text-2); white-space: pre-wrap; }
     .empty { padding: 2rem; text-align: center; color: var(--muted); }
     footer { margin-top: 2.5rem; color: var(--muted); font-size: .78rem; }

@@ -8,7 +8,7 @@ import { discoverProjects, resolveExplicitProjects } from "./discover.js";
 import { hasBranch, mergeBranch, pushBranch } from "./git.js";
 import { runPipeline } from "./pipeline.js";
 import { promptBranchSelection } from "./prompt.js";
-import { hasUnresolvedAtOrAbove } from "./report.js";
+import { hasUnresolvedAtOrAbove, operationalFailure } from "./report.js";
 import { scheduleTask } from "./scheduler.js";
 import {
   isSeverity,
@@ -141,10 +141,23 @@ async function runMerge(
  * as a CI gate instead of always reporting success.
  */
 function applyExitCode(reports: ProjectReport[], config: WizardConfig): void {
-  const broken = reports.filter((r) => r.audit.error ?? r.fix?.error);
+  // A working tree depstorm could not hand back intact outranks everything
+  // else here: the user has conflict markers or a missing stash to deal with.
+  const unrestored = reports.filter((r) => r.stashRestore?.ok === false);
+  if (unrestored.length > 0) {
+    consola.error(
+      `${unrestored.length} project(s) were left with unrestored work in progress: ${unrestored
+        .map((r) => r.project.name)
+        .join(", ")}`,
+    );
+    process.exitCode = EXIT_OPERATIONAL_FAILURE;
+    return;
+  }
+
+  const broken = reports.filter((r) => operationalFailure(r) !== undefined);
   if (broken.length > 0) {
     consola.error(
-      `${broken.length} project(s) could not be audited or fixed cleanly`,
+      `${broken.length} project(s) could not be audited, fixed or reverted cleanly`,
     );
     process.exitCode = EXIT_OPERATIONAL_FAILURE;
     return;

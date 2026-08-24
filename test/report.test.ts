@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import {
+  describeStashFailure,
   effectiveFixedCount,
   hasUnresolvedAtOrAbove,
+  operationalFailure,
   remainingBySeverity,
   saveHtmlReport,
   saveJsonReport,
@@ -273,5 +275,82 @@ describe("saveHtmlReport", () => {
     ]);
 
     assert.match(html, /unverified/);
+  });
+});
+
+describe("operationalFailure", () => {
+  it("passes a clean run", () => {
+    assert.equal(operationalFailure(reportWith()), undefined);
+  });
+
+  it("flags a stash that could not be put back", () => {
+    const result = operationalFailure(
+      reportWith({
+        stashRestore: { ok: false, reason: "conflict", conflicts: ["src.js"] },
+      }),
+    );
+
+    assert.ok(
+      result,
+      "a conflicted pop leaves conflict markers in the user's tree — the run did not succeed",
+    );
+    assert.match(result, /src\.js/);
+  });
+
+  it("flags a revert that could not be completed", () => {
+    assert.match(
+      operationalFailure(reportWith({ revertIncomplete: "install exited 1" })) ??
+        "",
+      /revert incomplete/,
+    );
+  });
+
+  it("ranks unrestored work above an audit failure", () => {
+    const result = operationalFailure(
+      reportWith({
+        audit: {
+          vulnerabilities: [],
+          totalCount: 0,
+          fixableCount: 0,
+          breakingFixCount: 0,
+          bySeverity: emptySeverityMap(),
+          error: "audit blew up",
+        },
+        stashRestore: { ok: false, reason: "missing" },
+      }),
+    );
+
+    assert.match(
+      result ?? "",
+      /STASHED WORK/,
+      "the user's own work is the more urgent of the two",
+    );
+  });
+
+  it("does not treat a successful restore as a failure", () => {
+    assert.equal(
+      operationalFailure(reportWith({ stashRestore: { ok: true } })),
+      undefined,
+    );
+  });
+});
+
+describe("describeStashFailure", () => {
+  it("names the conflicting files and how to recover", () => {
+    const text = describeStashFailure({
+      ok: false,
+      reason: "conflict",
+      conflicts: ["a.js", "b.js"],
+    });
+
+    assert.match(text, /a\.js, b\.js/);
+    assert.match(text, /git stash drop/);
+  });
+
+  it("points at the stash list when the stash went missing", () => {
+    assert.match(
+      describeStashFailure({ ok: false, reason: "missing" }),
+      /git stash list/,
+    );
   });
 });
