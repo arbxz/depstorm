@@ -28,15 +28,20 @@ after(cleanupTempDirs);
 
 function auditWith(
   severities: Severity[],
-  options: { fixable?: number; error?: string } = {},
+  options: { fixable?: number; breaking?: number; error?: string } = {},
 ): AuditResult {
+  const fixable = options.fixable ?? severities.length;
+  const breaking = options.breaking ?? 0;
+
   const vulnerabilities: Vulnerability[] = severities.map((severity, i) => ({
     name: `pkg-${i}`,
     severity,
     title: "t",
     url: "",
     range: "*",
-    fixAvailable: i < (options.fixable ?? severities.length),
+    // The breaking ones sit at the end, past the plainly fixable ones
+    fixAvailable: i < fixable || i >= severities.length - breaking,
+    fixIsBreaking: i >= severities.length - breaking,
   }));
 
   const bySeverity = emptySeverityMap();
@@ -45,7 +50,10 @@ function auditWith(
   return {
     vulnerabilities,
     totalCount: vulnerabilities.length,
-    fixableCount: vulnerabilities.filter((v) => v.fixAvailable).length,
+    fixableCount: vulnerabilities.filter(
+      (v) => v.fixAvailable && !v.fixIsBreaking,
+    ).length,
+    breakingFixCount: vulnerabilities.filter((v) => v.fixIsBreaking).length,
     bySeverity,
     error: options.error,
   };
@@ -116,6 +124,38 @@ describe("canAttemptFix", () => {
     );
 
     assert.equal(result.ok, true);
+  });
+
+  it("does not count a breaking-only remedy as fixable", () => {
+    const audit = auditWith(["critical"], { fixable: 0, breaking: 1 });
+
+    assert.equal(audit.fixableCount, 0);
+    assert.equal(audit.breakingFixCount, 1);
+
+    const result = canAttemptFix(
+      project,
+      audit,
+      testConfig({ severityThreshold: "high" }),
+    );
+
+    assert.equal(
+      result.ok,
+      false,
+      "`audit fix` will not apply a semver-major bump, so attempting it only produces 'nothing was resolved'",
+    );
+    assert.match(result.reason ?? "", /semver-major/);
+  });
+
+  it("still proceeds when some fixes are breaking and others are not", () => {
+    const audit = auditWith(["critical", "high"], { fixable: 1, breaking: 1 });
+
+    assert.equal(audit.fixableCount, 1);
+    assert.equal(audit.breakingFixCount, 1);
+    assert.equal(
+      canAttemptFix(project, audit, testConfig({ severityThreshold: "high" }))
+        .ok,
+      true,
+    );
   });
 
   it("refuses when nothing is auto-fixable", () => {

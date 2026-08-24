@@ -42,13 +42,23 @@ export interface Vulnerability {
   title: string;
   url: string;
   range: string;
+  /** A patched version exists, whether or not `audit fix` will reach for it */
   fixAvailable: boolean;
+  /**
+   * The only available fix is a semver-major upgrade. Plain `npm audit fix`
+   * refuses these, so counting them as fixable promises a fix that never
+   * arrives and makes a healthy run look like a failed one.
+   */
+  fixIsBreaking: boolean;
 }
 
 export interface AuditResult {
   vulnerabilities: Vulnerability[];
   totalCount: number;
+  /** Vulnerabilities `audit fix` can resolve without a breaking upgrade */
   fixableCount: number;
+  /** Vulnerabilities whose only fix is a semver-major upgrade */
+  breakingFixCount: number;
   bySeverity: Record<Severity, number>;
   /**
    * Set when the audit could not be completed. When present the counts above
@@ -110,6 +120,12 @@ export interface ProjectReport {
   timestamp: string;
   /** Branch the fixes were committed to, when git operations ran */
   fixBranch?: string;
+  /**
+   * Set when a revert could not be completed — typically the reinstall that
+   * realigns node_modules with the restored lockfile failed. The repository
+   * needs manual attention, so this must reach the summary and the exit code.
+   */
+  revertIncomplete?: string;
 }
 
 export interface WizardConfig {
