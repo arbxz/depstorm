@@ -12,6 +12,69 @@ const ESLINT_SEVERITY_MAP: Record<number, Severity> = {
   2: "high", // error
 };
 
+/** A whole lint pass has to be bounded — it walks the entire source tree. */
+const SONAR_TIMEOUT_MS = 5 * 60 * 1000;
+
+export type RuleLevel = "error" | "warn" | "off";
+
+/** The parts of an ESLint rule's `meta` this module actually reads. */
+export interface RuleMetaLike {
+  type?: string;
+  deprecated?: unknown;
+  docs?: { recommended?: boolean };
+}
+
+/**
+ * Decide how loudly a SonarJS rule should report.
+ *
+ * Every rule used to be registered at "warn", so `msg.severity` was always 1,
+ * the "high" branch of ESLINT_SEVERITY_MAP was unreachable, and the severity
+ * breakdown in both reports was a single bucket dressed up as a distribution.
+ *
+ * SonarJS already separates bug risk from style: `meta.type === "problem"` is
+ * the former, "suggestion" the latter. That distinction is what gets mapped.
+ */
+export function classifyRule(meta: RuleMetaLike | undefined): RuleLevel {
+  // Deprecated rules are on their way out of the plugin and usually duplicate
+  // a live one. Reporting them is noise the user cannot act on.
+  if (meta?.deprecated) return "off";
+  return meta?.type === "problem" ? "error" : "warn";
+}
+
+/** Reject rather than hang — a lint pass with no ceiling can outlast the run. */
+function withTimeout<T>(
+  work: Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)),
+      ms,
+    );
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err: unknown) => {
+        clearTimeout(timer);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      },
+    );
+  });
+}
+
+/** ESLint is optional; say what to install rather than leaking a loader error. */
+function isMissingDependency(err: unknown): boolean {
+  const code = (err as { code?: string } | null)?.code;
+  if (code === "ERR_MODULE_NOT_FOUND" || code === "MODULE_NOT_FOUND") return true;
+  const message = err instanceof Error ? err.message : String(err);
+  return /Cannot find (module|package) ['"]?(eslint|eslint-plugin-sonarjs)/i.test(
+    message,
+  );
+}
+
 /**
  * Run SonarJS code quality checks on a project using ESLint + eslint-plugin-sonarjs.
  *
@@ -43,10 +106,15 @@ export async function runSonarCheck(
           files: ["**/*.js", "**/*.ts", "**/*.jsx", "**/*.tsx"],
           plugins: { sonarjs: plugin },
           rules: Object.fromEntries(
-            Object.keys(plugin.rules ?? {}).map((rule) => [
-              `sonarjs/${rule}`,
-              "warn",
-            ]),
+            Object.entries(plugin.rules ?? {})
+              .map(
+                ([rule, impl]) =>
+                  [
+                    `sonarjs/${rule}`,
+                    classifyRule((impl as { meta?: RuleMetaLike }).meta),
+                  ] as const,
+              )
+              .filter(([, level]) => level !== "off"),
           ),
         },
         {
@@ -62,7 +130,11 @@ export async function runSonarCheck(
       ],
     });
 
-    const results = await eslint.lintFiles(["."]);
+    const results = await withTimeout(
+      eslint.lintFiles(["."]),
+      SONAR_TIMEOUT_MS,
+      `SonarJS check for ${project.name}`,
+    );
     const issues: SonarIssue[] = [];
 
 
@@ -102,6 +174,13 @@ export async function runSonarCheck(
     if (/are ignored|matched by/i.test(message)) {
       consola.info(`${project.name}: No lintable source files`);
       return { issues: [], issuesBySeverity, totalCount: 0 };
+    }
+
+    if (isMissingDependency(err)) {
+      const advice =
+        "SonarJS checks need the optional \"eslint\" and \"eslint-plugin-sonarjs\" packages. Install them, or set \"sonarCheck\": false to stop asking.";
+      consola.warn(`${project.name}: ${advice}`);
+      return { issues: [], issuesBySeverity, totalCount: 0, error: advice };
     }
 
     consola.warn(`${project.name}: SonarJS check failed — ${message}`);
