@@ -1,6 +1,7 @@
 import { cosmiconfig } from "cosmiconfig";
 import consola from "consola";
 import path from "node:path";
+import { expiredRules, parseIgnoreRules } from "./ignore.js";
 import {
   DEFAULT_CONFIG,
   SEVERITIES,
@@ -128,6 +129,7 @@ export function mergeConfig(raw: unknown, source = "config"): WizardConfig {
 
   set("projects", stringArray("projects"));
   set("failOn", severity("failOn"));
+  set("failOnQuality", severity("failOnQuality"));
   set("schedule", str("schedule"));
   set("sourceBranch", str("sourceBranch"));
   set("reportPath", str("reportPath"));
@@ -171,9 +173,29 @@ export function mergeConfig(raw: unknown, source = "config"): WizardConfig {
     }
   }
 
+  if (input.ignore !== undefined) {
+    const parsed = parseIgnoreRules(input.ignore);
+    problems.push(...parsed.problems);
+    if (parsed.rules.length > 0) config.ignore = parsed.rules;
+  }
+
   if (problems.length > 0) {
     throw new Error(
       `Invalid ${source}:\n${problems.map((p) => `  - ${p}`).join("\n")}`,
+    );
+  }
+
+  // A lapsed suppression stops suppressing, but doing that silently would be
+  // its own surprise — the advisory simply reappears with no explanation.
+  const lapsed = expiredRules(config.ignore);
+  if (lapsed.length > 0) {
+    consola.warn(
+      `${lapsed.length} ignore rule(s) have expired and no longer suppress anything:\n${lapsed
+        .map(
+          (rule) =>
+            `  - ${rule.package ?? rule.advisory ?? "?"} (expired ${rule.expires ?? "?"}) — ${rule.reason}`,
+        )
+        .join("\n")}`,
     );
   }
 

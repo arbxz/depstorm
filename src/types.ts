@@ -52,6 +52,24 @@ export interface Vulnerability {
   fixIsBreaking: boolean;
 }
 
+/**
+ * A consciously accepted advisory.
+ *
+ * `reason` is mandatory and `expires` makes the suppression lapse on its own,
+ * so the list stays a record of decisions rather than a place vulnerabilities
+ * go to be forgotten.
+ */
+export interface IgnoreRule {
+  /** Package name to match, e.g. "brace-expansion" */
+  package?: string;
+  /** Advisory id to match, e.g. "GHSA-xxxx-xxxx-xxxx" or "CVE-2026-1234" */
+  advisory?: string;
+  /** Why this is accepted. Required. */
+  reason: string;
+  /** YYYY-MM-DD, inclusive. After this the rule stops suppressing. */
+  expires?: string;
+}
+
 export interface AuditResult {
   vulnerabilities: Vulnerability[];
   totalCount: number;
@@ -71,6 +89,11 @@ export interface AuditResult {
    * is audited in its own right.
    */
   coveredBy?: string;
+  /**
+   * Advisories suppressed by an ignore rule. Kept rather than dropped: a
+   * suppression nobody can see is indistinguishable from a bug.
+   */
+  ignored?: Vulnerability[];
 }
 
 export interface FixResult {
@@ -190,6 +213,10 @@ export interface WizardConfig {
   allowInstallScripts: boolean;
   /** Exit non-zero when vulnerabilities at or above this severity remain */
   failOn?: Severity;
+  /** Exit non-zero when code quality issues at or above this severity remain */
+  failOnQuality?: Severity;
+  /** Advisories deliberately accepted — see IgnoreRule */
+  ignore?: IgnoreRule[];
 }
 
 export const DEFAULT_CONFIG: WizardConfig = {

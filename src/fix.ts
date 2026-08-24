@@ -281,7 +281,12 @@ export async function applyFix(
 
     // Confirm what actually changed rather than assuming every fixable
     // vulnerability was fixed — `audit fix` routinely fixes fewer.
-    const after = await runAudit(project, { quiet: true });
+    // Same suppressions as the pre-fix audit — comparing a filtered before
+    // against an unfiltered after would invent fixes that never happened.
+    const after = await runAudit(project, {
+      quiet: true,
+      ignore: config.ignore,
+    });
 
     if (after.error) {
       consola.warn(

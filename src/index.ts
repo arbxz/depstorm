@@ -9,7 +9,11 @@ import { discoverProjects, resolveExplicitProjects } from "./discover.js";
 import { hasBranch, mergeBranch, pushBranch } from "./git.js";
 import { runPipeline } from "./pipeline.js";
 import { promptBranchSelection } from "./prompt.js";
-import { hasUnresolvedAtOrAbove, operationalFailure } from "./report.js";
+import {
+  hasQualityIssuesAtOrAbove,
+  hasUnresolvedAtOrAbove,
+  operationalFailure,
+} from "./report.js";
 import { scheduleTask } from "./scheduler.js";
 import {
   isSeverity,
@@ -164,18 +168,33 @@ function applyExitCode(reports: ProjectReport[], config: WizardConfig): void {
     return;
   }
 
-  if (!config.failOn) return;
-
-  const offenders = reports.filter((r) =>
-    hasUnresolvedAtOrAbove(r, config.failOn as Severity),
-  );
-  if (offenders.length > 0) {
-    consola.error(
-      `${offenders.length} project(s) still have "${config.failOn}" or higher vulnerabilities: ${offenders
-        .map((r) => r.project.name)
-        .join(", ")}`,
+  if (config.failOn) {
+    const offenders = reports.filter((r) =>
+      hasUnresolvedAtOrAbove(r, config.failOn as Severity),
     );
-    process.exitCode = EXIT_POLICY_FAILURE;
+    if (offenders.length > 0) {
+      consola.error(
+        `${offenders.length} project(s) still have "${config.failOn}" or higher vulnerabilities: ${offenders
+          .map((r) => r.project.name)
+          .join(", ")}`,
+      );
+      process.exitCode = EXIT_POLICY_FAILURE;
+      return;
+    }
+  }
+
+  if (config.failOnQuality) {
+    const offenders = reports.filter((r) =>
+      hasQualityIssuesAtOrAbove(r, config.failOnQuality as Severity),
+    );
+    if (offenders.length > 0) {
+      consola.error(
+        `${offenders.length} project(s) still have "${config.failOnQuality}" or higher code quality issues: ${offenders
+          .map((r) => r.project.name)
+          .join(", ")}`,
+      );
+      process.exitCode = EXIT_POLICY_FAILURE;
+    }
   }
 }
 
@@ -720,6 +739,14 @@ async function cliMode() {
       "--fail-on <level>",
       `Exit non-zero if vulnerabilities at or above this level remain (${SEVERITIES.join("|")})`,
     )
+    .option(
+      "--fail-on-quality <level>",
+      `Exit non-zero if code quality issues at or above this level remain (${SEVERITIES.join("|")})`,
+    )
+    .option(
+      "--ignore <packages...>",
+      "Suppress advisories for these packages for this run only",
+    )
     .option("--report <path>", "Report output path (extension added for you)")
     .option("-b, --branch <name>", "Source branch to pull from")
     .action(async (opts) => {
@@ -871,6 +898,21 @@ async function buildConfig(
   }
   if (opts.failOn !== undefined) {
     config.failOn = requireSeverity(opts.failOn, "--fail-on");
+  }
+  if (opts.failOnQuality !== undefined) {
+    config.failOnQuality = requireSeverity(
+      opts.failOnQuality,
+      "--fail-on-quality",
+    );
+  }
+  if (opts.ignore) {
+    // A flag cannot carry a rationale, so it says so rather than pretending
+    // to be a reviewed entry in the config file.
+    const adhoc = (opts.ignore as string[]).map((name) => ({
+      package: name,
+      reason: "suppressed with --ignore on the command line",
+    }));
+    config.ignore = [...(config.ignore ?? []), ...adhoc];
   }
   if (opts.fix === false) config.autoFix = false;
   if (opts.build === false) config.verifyBuild = false;

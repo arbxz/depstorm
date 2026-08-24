@@ -161,3 +161,37 @@ describe("resolveRoots", () => {
     assert.equal(resolved[1], abs);
   });
 });
+
+describe("mergeConfig — ignore rules", () => {
+  it("accepts a documented suppression", () => {
+    const config = mergeConfig({
+      ignore: [{ package: "lodash", reason: "dev-only", expires: "2099-01-01" }],
+    });
+
+    assert.equal(config.ignore?.length, 1);
+    assert.equal(config.ignore?.[0]?.package, "lodash");
+  });
+
+  it("rejects an undocumented suppression rather than accepting it silently", () => {
+    assert.throws(
+      () => mergeConfig({ ignore: [{ package: "lodash" }] }),
+      /reason/,
+    );
+  });
+
+  it("rejects a rule with nothing to match on", () => {
+    assert.throws(
+      () => mergeConfig({ ignore: [{ reason: "just because" }] }),
+      /package.*advisory/s,
+    );
+  });
+
+  it("leaves ignore absent when the config does not mention it", () => {
+    assert.equal(mergeConfig({}).ignore, undefined);
+  });
+
+  it("validates failOnQuality like any other severity", () => {
+    assert.equal(mergeConfig({ failOnQuality: "high" }).failOnQuality, "high");
+    assert.throws(() => mergeConfig({ failOnQuality: "HIGH" }), /must be one of/);
+  });
+});

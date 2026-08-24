@@ -118,7 +118,7 @@ async function processProject(
     // so a standalone audit here can only fail. The root is audited separately.
     audit: project.workspaceRoot
       ? coveredByWorkspace(project.workspaceRoot)
-      : await runAudit(project),
+      : await runAudit(project, { ignore: config.ignore }),
     reverted: false,
     timestamp: new Date().toISOString(),
   };
