@@ -102,7 +102,67 @@ export function parsePnpmAudit(json: PnpmAuditJson): Vulnerability[] {
 }
 
 /**
- * Yarn emits NDJSON: one JSON document per line. The `auditAdvisory` entries
+ * Yarn Berry (2+) has no `yarn audit`. Its equivalent is `yarn npm audit`,
+ * which emits one JSON document per line keyed by package name:
+ *
+ *   {"value":"lodash","children":{"ID":"...","Severity":"high", ...}}
+ *
+ * Classic yarn 1 emits a different NDJSON shape, handled by parseYarnAudit.
+ *
+ * @internal exported for tests
+ */
+export function parseYarnBerryAudit(stdout: string): Vulnerability[] {
+  const vulns: Vulnerability[] = [];
+  const seen = new Set<string>();
+
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("{")) continue;
+
+    let parsed: {
+      value?: string;
+      children?: Record<string, unknown>;
+    };
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+
+    const children = parsed.children;
+    if (!children || typeof parsed.value !== "string") continue;
+
+    const pick = (...keys: string[]): string | undefined => {
+      for (const key of keys) {
+        const value = children[key];
+        if (typeof value === "string" && value !== "") return value;
+      }
+      return undefined;
+    };
+
+    const name = parsed.value;
+    const range = pick("Vulnerable Versions", "Range") ?? "*";
+    const key = `${name}@${range}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    vulns.push({
+      name,
+      severity: toSeverity(pick("Severity")),
+      title: pick("Issue", "Title") ?? "",
+      url: pick("URL", "Url") ?? "",
+      range,
+      // Berry has `yarn npm audit` but still no non-interactive fix.
+      fixAvailable: false,
+      fixIsBreaking: false,
+    });
+  }
+
+  return vulns;
+}
+
+/**
+ * Yarn 1 emits NDJSON: one JSON document per line. The `auditAdvisory` entries
  * carry the same advisory shape as pnpm, so real vulnerability detail is
  * available — the previous summary-only parse produced a non-zero count with
  * an empty vulnerability list, which made every downstream check a no-op.
@@ -142,6 +202,28 @@ export function parseYarnAudit(stdout: string): Vulnerability[] {
   }
 
   return vulns;
+}
+
+/**
+ * Yarn's major version, or 0 when it cannot be determined.
+ *
+ * Yarn 1 and Yarn Berry have different audit commands and different output
+ * shapes, so the version has to be established before either is attempted.
+ * Falling back to 0 keeps the classic path, which is what a machine without a
+ * working yarn would have got anyway.
+ */
+async function yarnMajorVersion(project: ProjectInfo): Promise<number> {
+  try {
+    const result = await execa("yarn", ["--version"], {
+      cwd: project.path,
+      reject: false,
+      timeout: 30_000,
+    });
+    const major = Number.parseInt((result.stdout ?? "").trim().split(".")[0] ?? "", 10);
+    return Number.isInteger(major) ? major : 0;
+  } catch {
+    return 0;
+  }
 }
 
 function failed(message: string): AuditResult {
@@ -202,10 +284,15 @@ export async function runAudit(
 
   log.start(`Auditing ${project.name} (${project.packageManager})...`);
 
-  const args =
-    project.packageManager === "yarn"
-      ? ["audit", "--json"]
-      : ["audit", "--json"];
+  // Yarn Berry dropped `yarn audit` entirely. Running it there produced a
+  // generic "audit could not run" that told the user nothing actionable.
+  const yarnMajor =
+    project.packageManager === "yarn" ? await yarnMajorVersion(project) : 0;
+  const berry = yarnMajor >= 2;
+
+  const args = berry
+    ? ["npm", "audit", "--json", "--all", "--recursive"]
+    : ["audit", "--json"];
 
   let stdout: string;
   try {
@@ -246,7 +333,9 @@ export async function runAudit(
 
   try {
     if (project.packageManager === "yarn") {
-      vulnerabilities = parseYarnAudit(stdout);
+      vulnerabilities = berry
+        ? parseYarnBerryAudit(stdout)
+        : parseYarnAudit(stdout);
     } else {
       const json: unknown = JSON.parse(stdout);
       if (json === null || typeof json !== "object") {

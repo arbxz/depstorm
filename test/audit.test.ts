@@ -4,6 +4,7 @@ import {
   parseNpmAudit,
   parsePnpmAudit,
   parseYarnAudit,
+  parseYarnBerryAudit,
   runAudit,
 } from "../src/audit.js";
 import {
@@ -232,5 +233,62 @@ describe("runAudit failure handling", () => {
       0,
       "counts are meaningless when error is set — the report must not claim clean",
     );
+  });
+});
+
+describe("parseYarnBerryAudit", () => {
+  const entry = (name: string, severity: string) =>
+    JSON.stringify({
+      value: name,
+      children: {
+        ID: 1234,
+        Issue: `${name} is vulnerable`,
+        URL: `https://example.test/${name}`,
+        Severity: severity,
+        "Vulnerable Versions": "<1.0.0",
+        "Tree Versions": ["0.9.0"],
+      },
+    });
+
+  it("reads Berry's package-keyed NDJSON", () => {
+    const vulns = parseYarnBerryAudit(
+      [entry("lodash", "high"), entry("minimist", "moderate")].join("\n"),
+    );
+
+    assert.deepEqual(vulns.map((v) => v.name), ["lodash", "minimist"]);
+    assert.equal(vulns[0]?.severity, "high");
+    assert.equal(vulns[0]?.title, "lodash is vulnerable");
+    assert.equal(vulns[0]?.url, "https://example.test/lodash");
+    assert.equal(vulns[0]?.range, "<1.0.0");
+  });
+
+  it("marks everything unfixable — Berry has no non-interactive fix either", () => {
+    const [vuln] = parseYarnBerryAudit(entry("lodash", "critical"));
+
+    assert.equal(vuln?.fixAvailable, false);
+    assert.equal(vuln?.fixIsBreaking, false);
+  });
+
+  it("deduplicates repeated entries", () => {
+    assert.equal(
+      parseYarnBerryAudit([entry("lodash", "high"), entry("lodash", "high")].join("\n")).length,
+      1,
+    );
+  });
+
+  it("ignores malformed lines and entries with no children", () => {
+    const stdout = [
+      "not json",
+      "{ broken",
+      JSON.stringify({ value: "lodash" }),
+      entry("ok", "low"),
+    ].join("\n");
+
+    assert.equal(parseYarnBerryAudit(stdout).length, 1);
+  });
+
+  it("coerces an unrecognised severity to info", () => {
+    const [vuln] = parseYarnBerryAudit(entry("weird", "CATASTROPHIC"));
+    assert.equal(vuln?.severity, "info");
   });
 });
