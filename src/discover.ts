@@ -100,9 +100,30 @@ async function findWorkspaceRoot(
   }
 }
 
-async function hasGitRepo(projectPath: string): Promise<boolean> {
-  // `.git` is a directory in a normal clone and a file in worktrees/submodules
-  return exists(path.join(projectPath, ".git"));
+/**
+ * The repository a project belongs to, or null if it is not in one.
+ *
+ * This walks up rather than checking only the project directory. A repository
+ * laid out as `repo/{api,web}/` with no package.json at the root is common,
+ * and looking only at `<project>/.git` reported every project in it as
+ * non-git — so branch, commit and push were all skipped, silently, with no
+ * message saying why.
+ *
+ * `.git` is a directory in a normal clone and a file in worktrees and
+ * submodules, so existence is what is checked, not its type.
+ */
+export async function findGitRoot(
+  projectPath: string,
+): Promise<string | null> {
+  let dir = path.resolve(projectPath);
+
+  for (;;) {
+    if (await exists(path.join(dir, ".git"))) return dir;
+
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
 }
 
 async function readPackageJson(
@@ -145,15 +166,16 @@ async function toProjectInfo(
   pkg: Record<string, unknown>,
 ): Promise<ProjectInfo> {
   const name = typeof pkg.name === "string" ? pkg.name : path.basename(dir);
+  const gitRoot = await findGitRoot(dir);
+  const git = {
+    hasGit: gitRoot !== null,
+    ...(gitRoot !== null ? { gitRoot } : {}),
+  };
+
   const ownLockfile = await lockfileIn(dir);
 
   if (ownLockfile) {
-    return {
-      name,
-      path: dir,
-      packageManager: ownLockfile,
-      hasGit: await hasGitRepo(dir),
-    };
+    return { name, path: dir, packageManager: ownLockfile, ...git };
   }
 
   // No lockfile here — see whether an ancestor owns one before falling back
@@ -162,7 +184,7 @@ async function toProjectInfo(
     name,
     path: dir,
     packageManager: root?.packageManager ?? (await detectPackageManager(dir)),
-    hasGit: await hasGitRepo(dir),
+    ...git,
     ...(root ? { workspaceRoot: root.dir } : {}),
   };
 }

@@ -334,6 +334,11 @@ function actionScan(projects: ProjectInfo[]) {
       `  ${color}${p.packageManager.padEnd(4)}\x1b[0m  ${p.name.padEnd(30)} ${git}`,
     );
     console.log(`  \x1b[90m      ${p.path}\x1b[0m`);
+    // Worth showing: a project whose repository is an ancestor behaves
+    // differently from one that is its own repository root.
+    if (p.gitRoot && p.gitRoot !== p.path) {
+      console.log(`  \x1b[90m      repo: ${p.gitRoot}\x1b[0m`);
+    }
   }
   console.log();
 }

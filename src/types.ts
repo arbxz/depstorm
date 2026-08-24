@@ -28,6 +28,12 @@ export interface ProjectInfo {
   packageManager: PackageManager;
   hasGit: boolean;
   /**
+   * The repository this project lives in — not necessarily `path`. A project
+   * nested inside a repository is still under version control, and treating
+   * it as though it were not skipped every git operation without saying so.
+   */
+  gitRoot?: string;
+  /**
    * Set for a workspace member that has no lockfile of its own — the path of
    * the nearest ancestor that does. Its dependency tree is resolved by that
    * root, so auditing it standalone only produces "requires an existing
@@ -162,6 +168,12 @@ export interface ProjectReport {
    * to reach the summary and the exit code rather than only the log.
    */
   stashRestore?: RestoreStashResult;
+  /**
+   * Why no branch or commit was made despite the project being in a
+   * repository. Silently doing nothing was the previous behaviour and it left
+   * users wondering where their fix branch went.
+   */
+  gitSkippedReason?: string;
 }
 
 export interface WizardConfig {

@@ -1,10 +1,14 @@
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import path from "node:path";
 import {
   discoverProjects,
+  findGitRoot,
   resolveExplicitProjects,
 } from "../src/discover.js";
+import { sharedRepositories } from "../src/pipeline.js";
+import type { ProjectInfo } from "../src/types.js";
 import {
   cleanupTempDirs,
   silenceLogs,
@@ -261,5 +265,93 @@ describe("workspace member detection", () => {
       "a project with its own lockfile is audited on its own",
     );
     assert.equal(member.packageManager, "npm");
+  });
+});
+
+describe("findGitRoot", () => {
+  it("finds the repository a nested project belongs to", async () => {
+    const dir = tempDir();
+    fs.mkdirSync(path.join(dir, ".git"));
+    writeJson(dir, "api/package.json", { name: "api" });
+
+    assert.equal(
+      await findGitRoot(path.join(dir, "api")),
+      path.resolve(dir),
+      "checking only <project>/.git reported every nested project as non-git",
+    );
+  });
+
+  it("treats a .git file as a repository, for worktrees and submodules", async () => {
+    const dir = tempDir();
+    writeFile(dir, ".git", "gitdir: ../actual/.git\n");
+
+    assert.equal(await findGitRoot(dir), path.resolve(dir));
+  });
+
+  it("prefers the nearest repository", async () => {
+    const dir = tempDir();
+    fs.mkdirSync(path.join(dir, ".git"));
+    fs.mkdirSync(path.join(dir, "inner"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "inner", ".git"));
+
+    assert.equal(
+      await findGitRoot(path.join(dir, "inner")),
+      path.resolve(path.join(dir, "inner")),
+    );
+  });
+
+  it("returns null outside any repository", async () => {
+    assert.equal(await findGitRoot(tempDir()), null);
+  });
+});
+
+describe("sharedRepositories", () => {
+  const project = (
+    name: string,
+    gitRoot?: string,
+    workspaceRoot?: string,
+  ): ProjectInfo => ({
+    name,
+    path: `/repo/${name}`,
+    packageManager: "npm",
+    hasGit: gitRoot !== undefined,
+    ...(gitRoot !== undefined ? { gitRoot } : {}),
+    ...(workspaceRoot !== undefined ? { workspaceRoot } : {}),
+  });
+
+  it("groups projects that resolve to the same repository", () => {
+    const shared = sharedRepositories([
+      project("api", "/repo"),
+      project("web", "/repo"),
+      project("alone", "/other"),
+    ]);
+
+    assert.deepEqual([...shared.keys()], ["/repo"]);
+    assert.deepEqual(shared.get("/repo")?.map((p) => p.name), ["api", "web"]);
+  });
+
+  it("does not flag a project that has its repository to itself", () => {
+    assert.equal(
+      sharedRepositories([project("a", "/a"), project("b", "/b")]).size,
+      0,
+    );
+  });
+
+  it("ignores projects that are not in a repository at all", () => {
+    assert.equal(sharedRepositories([project("a"), project("b")]).size, 0);
+  });
+
+  it("does not let workspace members disable git for their own root", () => {
+    const shared = sharedRepositories([
+      project("root", "/repo"),
+      project("pkg-a", "/repo", "/repo"),
+      project("pkg-b", "/repo", "/repo"),
+    ]);
+
+    assert.equal(
+      shared.size,
+      0,
+      "workspace members are never fixed on their own, so they never contend for the repository",
+    );
   });
 });

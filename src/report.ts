@@ -224,6 +224,10 @@ export function printSummary(reports: ProjectReport[]): void {
       console.log(`    🌿 Branch: ${report.fixBranch}`);
     }
 
+    if (report.gitSkippedReason) {
+      console.log(`    🚧 No branch or commit — ${report.gitSkippedReason}`);
+    }
+
     const nextStep = remediation(report);
     if (nextStep) {
       console.log(`    👉 ${nextStep}`);

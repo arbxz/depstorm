@@ -56,10 +56,37 @@ export async function runPipeline(
     consola.info("Dry run — no files, dependencies or branches will change");
   }
 
+  // Decided once for the whole run: whether a project has to give up its git
+  // operations because another project in this run shares its repository.
+  const shared = sharedRepositories(projects);
+  const sharedReason = new Map<string, string>();
+
+  for (const [root, group] of shared) {
+    const names = group.map((p) => p.name).join(", ");
+    const reason = `shares the repository at ${root} with ${group.length - 1} other project(s) in this run`;
+    consola.warn(
+      `Git operations are disabled for ${names}: they all live in ${root}, and depstorm processes one project at a time — branching per project in a shared repository would stack each fix on the previous one. Audit and fix still run; run them in separate invocations to get branches and commits.`,
+    );
+    for (const project of group) sharedReason.set(project.path, reason);
+  }
+
   for (const project of projects) {
     consola.box(`Processing: ${project.name}`);
     try {
-      reports.push(await processProject(project, config));
+      const reason = sharedReason.get(project.path);
+      const projectConfig = reason
+        ? {
+            ...config,
+            gitBranch: false,
+            gitCommit: false,
+            gitPush: false,
+            gitMerge: false,
+          }
+        : config;
+
+      const report = await processProject(project, projectConfig);
+      if (reason) report.gitSkippedReason = reason;
+      reports.push(report);
     } catch (err) {
       // One broken project must not abort the whole run
       const message = err instanceof Error ? err.message : String(err);
@@ -94,6 +121,41 @@ export async function runPipeline(
   }
 
   return reports;
+}
+
+/**
+ * Group the projects that share a git repository with another project.
+ *
+ * Now that a project nested inside a repository is correctly recognised as
+ * being under version control, several projects in one run can resolve to the
+ * same repository. Each project is processed on its own — stash, branch,
+ * commit, switch back — and doing that twice against one repository would
+ * have the second project branch off the first one's fix branch and stack its
+ * commit on top.
+ *
+ * Workspace members are excluded: their dependencies are governed by the root,
+ * so they are never fixed on their own and never perform git work. Counting
+ * them would disable git for the root they are covered by.
+ */
+export function sharedRepositories(
+  projects: ProjectInfo[],
+): Map<string, ProjectInfo[]> {
+  const byRoot = new Map<string, ProjectInfo[]>();
+
+  for (const project of projects) {
+    if (project.gitRoot === undefined) continue;
+    if (project.workspaceRoot !== undefined) continue;
+
+    const existing = byRoot.get(project.gitRoot);
+    if (existing) existing.push(project);
+    else byRoot.set(project.gitRoot, [project]);
+  }
+
+  for (const [root, group] of byRoot) {
+    if (group.length < 2) byRoot.delete(root);
+  }
+
+  return byRoot;
 }
 
 /** An audit that was deliberately not run because a workspace root owns it. */
