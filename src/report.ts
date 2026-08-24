@@ -2,11 +2,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import consola from "consola";
 import {
+  FIXABLE_PACKAGE_MANAGERS,
   SEVERITY_ORDER,
   emptySeverityMap,
   type ProjectReport,
   type RestoreStashResult,
   type Severity,
+  type Vulnerability,
 } from "./types.js";
 
 const SEVERITY_COLORS: Record<Severity, string> = {
@@ -195,6 +197,11 @@ export function printSummary(reports: ProjectReport[]): void {
       console.log(`    🌿 Branch: ${report.fixBranch}`);
     }
 
+    const nextStep = remediation(report);
+    if (nextStep) {
+      console.log(`    👉 ${nextStep}`);
+    }
+
     if (report.stashRestore && !report.stashRestore.ok) {
       console.log(`    🚨 ${describeStashFailure(report.stashRestore)}`);
     }
@@ -325,6 +332,57 @@ const STATUS_ICON: Record<ProjectStatus, string> = {
   outstanding: "⚠️",
 };
 
+/**
+ * The next command to run for a project that still has work outstanding.
+ *
+ * A report that says what is broken but never what to type leaves the reader
+ * to work out the remedy themselves — and the remedy differs by package
+ * manager and by whether the remaining fixes cross a major.
+ */
+export function remediation(report: ProjectReport): string | undefined {
+  if (report.audit.error !== undefined) return undefined;
+  if (report.audit.coveredBy !== undefined) return undefined;
+
+  const counts = remainingBySeverity(report);
+  const remaining = SEVERITY_DESC.reduce(
+    (sum, severity) => sum + (counts[severity] ?? 0),
+    0,
+  );
+  if (remaining === 0) return undefined;
+
+  const pm = report.project.packageManager;
+
+  if (!FIXABLE_PACKAGE_MANAGERS.includes(pm)) {
+    return `${pm} has no non-interactive audit fix. Inspect with "${pm} audit" and upgrade the reported packages by hand.`;
+  }
+
+  if (report.audit.breakingFixCount > 0) {
+    const command =
+      pm === "pnpm"
+        ? "pnpm update --latest <package>"
+        : "npm audit fix --force";
+    return `${report.audit.breakingFixCount} of these can only be fixed by a semver-major upgrade. Review the advisories below, then run "${command}" and verify the build — depstorm will not apply a breaking change for you.`;
+  }
+
+  return `Re-run "${pm} audit" to inspect what is left, or upgrade the reported packages directly.`;
+}
+
+/**
+ * Render an advisory as a link to its write-up when there is one.
+ *
+ * The URL was already parsed, stored in the JSON report and then rendered as
+ * dead text — the one thing a reader wants next from a vulnerability row is
+ * the advisory itself.
+ *
+ * Only http(s) is linked: `url` comes from the registry's advisory feed, and
+ * a `javascript:` href would turn a third-party string into script.
+ */
+function advisoryLink(vuln: Vulnerability): string {
+  const text = escapeHtml(vuln.title || vuln.name);
+  if (!/^https?:\/\//i.test(vuln.url)) return text;
+  return `<a href="${escapeHtml(vuln.url)}" target="_blank" rel="noreferrer noopener">${text}</a>`;
+}
+
 /** A stacked bar of severity counts. Segments carry a 2px surface gap. */
 function severityBar(counts: Record<Severity, number>): string {
   const total = SEVERITY_DESC.reduce((sum, s) => sum + (counts[s] ?? 0), 0);
@@ -421,7 +479,7 @@ export async function saveHtmlReport(
                      <td><code>${escapeHtml(v.name)}</code></td>
                      <td><span class="pill" style="--pill:${SEVERITY_HEX[v.severity] ?? SEVERITY_HEX.info}">${escapeHtml(v.severity)}</span></td>
                      <td><code>${escapeHtml(v.range)}</code></td>
-                     <td>${escapeHtml(v.title)}</td>
+                     <td>${advisoryLink(v)}</td>
                      <td>${
                        v.fixIsBreaking
                          ? `<span class="bad" title="Only a semver-major upgrade resolves this — audit fix will not apply it">breaking</span>`
@@ -464,6 +522,11 @@ export async function saveHtmlReport(
         .map((text) => `<p class="note bad alert">${escapeHtml(text)}</p>`)
         .join("");
 
+      const nextStep = remediation(r);
+      const remedy = nextStep
+        ? `<p class="note remedy"><strong>Next:</strong> ${escapeHtml(nextStep)}</p>`
+        : "";
+
       return `<tbody class="row" data-status="${status}" data-name="${escapeHtml(r.project.name)}" data-path="${escapeHtml(r.project.path)}" data-vulns="${r.audit.totalCount}" data-fixed="${fixed}" data-remaining="${SEVERITY_DESC.reduce((s, k) => s + (remaining[k] ?? 0), 0)}">
         <tr class="head" tabindex="0" role="button" aria-expanded="false" aria-controls="d${i}">
           <td class="name">
@@ -481,10 +544,20 @@ export async function saveHtmlReport(
           <td class="sev">${severityBar(remaining)}</td>
           <td><span class="status s-${status}">${STATUS_LABEL[status]}</span></td>
         </tr>
-        <tr class="detail" id="d${i}" hidden><td colspan="7">${alerts}${buildError}${detail}</td></tr>
+        <tr class="detail" id="d${i}" hidden><td colspan="7">${alerts}${remedy}${buildError}${detail}</td></tr>
       </tbody>`;
     })
     .join("\n");
+
+  // Vulnerability rows already say when they were cut short; code quality
+  // rows were silently truncated at 20 per project, so a reader had no way to
+  // know they were looking at a slice.
+  const sonarTruncated = reports
+    .filter((r) => (r.sonar?.issues.length ?? 0) > MAX_SONAR_ROWS)
+    .map(
+      (r) =>
+        `${r.project.name} (${MAX_SONAR_ROWS} of ${r.sonar?.issues.length ?? 0})`,
+    );
 
   const sonarDetailRows = reports
     .flatMap((r) =>
@@ -608,8 +681,13 @@ export async function saveHtmlReport(
     table.sub tr:last-child td { border-bottom: 0; }
     code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .92em; }
     .pill { font-size: .74rem; padding: .1rem .45rem; border-radius: 999px; white-space: nowrap; color: var(--text); border: 1px solid var(--pill); box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--pill) 18%, transparent); }
+    a { color: var(--accent); text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent); text-underline-offset: 2px; }
+    a:hover { text-decoration-color: var(--accent); }
     .note { margin: 0; font-size: .85rem; }
     .alert { margin: 0 0 .85rem; padding: .6rem .75rem; border: 1px solid var(--bad); border-radius: 8px; font-weight: 600; }
+    .remedy { margin: 0 0 .85rem; padding: .6rem .75rem; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; color: var(--text-2); }
+    .remedy strong { color: var(--text); }
+    .trunc { margin-top: .6rem; }
     pre.build { margin: 0 0 .85rem; padding: .7rem .8rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; font-size: .8rem; color: var(--text-2); white-space: pre-wrap; }
     .empty { padding: 2rem; text-align: center; color: var(--muted); }
     footer { margin-top: 2.5rem; color: var(--muted); font-size: .78rem; }
@@ -681,7 +759,14 @@ export async function saveHtmlReport(
       <thead><tr><th>Project</th><th>Rule</th><th>Severity</th><th>Location</th><th>Message</th></tr></thead>
       <tbody>${sonarDetailRows}</tbody>
     </table>
-  </div>`
+  </div>
+  ${
+    sonarTruncated.length > 0
+      ? `<p class="muted note trunc">Truncated per project — ${escapeHtml(
+          sonarTruncated.join(", "),
+        )}. The full list is in the JSON report.</p>`
+      : ""
+  }`
       : ""
   }
 
