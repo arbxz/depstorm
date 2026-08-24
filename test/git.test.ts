@@ -583,3 +583,68 @@ describe("restoreStash conflict detection", () => {
     assert.equal(stashCount(dir), 0);
   });
 });
+
+describe("commitFixes from a repository root", () => {
+  it("stages a nested project's files without sweeping up the rest", async () => {
+    const repo = createRepo({
+      files: {
+        "README.md": "root\n",
+        "api/package.json": '{"name":"api"}\n',
+        "api/package-lock.json": '{"lockfileVersion":3}\n',
+        "web/package.json": '{"name":"web"}\n',
+      },
+    });
+
+    // A dependency fix in one nested project, plus unrelated work elsewhere
+    writeFile(repo, "api/package-lock.json", '{"lockfileVersion":3,"fixed":1}\n');
+    writeFile(repo, "web/package.json", '{"name":"web","touched":true}\n');
+    writeFile(repo, "README.md", "edited by the user\n");
+
+    const committed = await commitFixes(
+      projectInfo(repo),
+      ["api/package.json", "api/package-lock.json"],
+      1,
+      true,
+    );
+
+    assert.equal(committed, true);
+
+    const changed = git(repo, "show", "--name-only", "--format=", "HEAD")
+      .split("\n")
+      .map((f) => f.trim())
+      .filter(Boolean);
+
+    assert.deepEqual(
+      changed,
+      ["api/package-lock.json"],
+      "only the nested project's changed lockfile belongs in the commit",
+    );
+    assert.match(
+      git(repo, "status", "--porcelain"),
+      /web\/package\.json/,
+      "unrelated work in another project must stay uncommitted",
+    );
+    assert.match(git(repo, "status", "--porcelain"), /README\.md/);
+  });
+
+  it("stages nothing when a bare filename is used from the repository root", async () => {
+    const repo = createRepo({
+      files: {
+        "root.txt": "x\n",
+        "api/package.json": '{"name":"api"}\n',
+      },
+    });
+
+    writeFile(repo, "api/package.json", '{"name":"api","fixed":true}\n');
+
+    // The pre-grouping bug: listTouchedFiles returns project-relative names,
+    // and "package.json" does not exist at the repository root.
+    const committed = await commitFixes(projectInfo(repo), ["package.json"], 1, true);
+
+    assert.equal(
+      committed,
+      false,
+      "a bare filename must not silently commit nothing — repoRelativeTouched exists for this",
+    );
+  });
+});

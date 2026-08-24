@@ -7,7 +7,7 @@ import {
   findGitRoot,
   resolveExplicitProjects,
 } from "../src/discover.js";
-import { sharedRepositories } from "../src/pipeline.js";
+import { groupByRepository } from "../src/pipeline.js";
 import type { ProjectInfo } from "../src/types.js";
 import {
   cleanupTempDirs,
@@ -305,7 +305,8 @@ describe("findGitRoot", () => {
   });
 });
 
-describe("sharedRepositories", () => {
+
+describe("groupByRepository", () => {
   const project = (
     name: string,
     gitRoot?: string,
@@ -319,39 +320,58 @@ describe("sharedRepositories", () => {
     ...(workspaceRoot !== undefined ? { workspaceRoot } : {}),
   });
 
-  it("groups projects that resolve to the same repository", () => {
-    const shared = sharedRepositories([
+  it("puts projects sharing a repository into one group", () => {
+    const groups = groupByRepository([
       project("api", "/repo"),
       project("web", "/repo"),
-      project("alone", "/other"),
     ]);
 
-    assert.deepEqual([...shared.keys()], ["/repo"]);
-    assert.deepEqual(shared.get("/repo")?.map((p) => p.name), ["api", "web"]);
-  });
-
-  it("does not flag a project that has its repository to itself", () => {
-    assert.equal(
-      sharedRepositories([project("a", "/a"), project("b", "/b")]).size,
-      0,
+    assert.equal(groups.length, 1);
+    assert.equal(groups[0]?.gitRoot, "/repo");
+    assert.deepEqual(
+      groups[0]?.projects.map((p) => p.name),
+      ["api", "web"],
     );
   });
 
-  it("ignores projects that are not in a repository at all", () => {
-    assert.equal(sharedRepositories([project("a"), project("b")]).size, 0);
+  it("keeps separate repositories separate", () => {
+    const groups = groupByRepository([
+      project("a", "/repo-a"),
+      project("b", "/repo-b"),
+    ]);
+
+    assert.equal(groups.length, 2);
   });
 
-  it("does not let workspace members disable git for their own root", () => {
-    const shared = sharedRepositories([
+  it("gives each non-git project its own group", () => {
+    const groups = groupByRepository([project("a"), project("b")]);
+
+    assert.equal(groups.length, 2);
+    assert.equal(groups[0]?.gitRoot, undefined);
+  });
+
+  it("groups a workspace root with its members, so they share one branch", () => {
+    const groups = groupByRepository([
       project("root", "/repo"),
       project("pkg-a", "/repo", "/repo"),
       project("pkg-b", "/repo", "/repo"),
     ]);
 
-    assert.equal(
-      shared.size,
-      0,
-      "workspace members are never fixed on their own, so they never contend for the repository",
+    assert.equal(groups.length, 1);
+    assert.equal(groups[0]?.projects.length, 3);
+  });
+
+  it("preserves discovery order across mixed groups", () => {
+    const groups = groupByRepository([
+      project("first", "/repo-a"),
+      project("loner"),
+      project("second", "/repo-a"),
+      project("third", "/repo-b"),
+    ]);
+
+    assert.deepEqual(
+      groups.map((g) => g.projects.map((p) => p.name)),
+      [["first", "second"], ["loner"], ["third"]],
     );
   });
 });
