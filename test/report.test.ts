@@ -8,6 +8,7 @@ import {
   hasUnresolvedAtOrAbove,
   operationalFailure,
   remainingBySeverity,
+  remediation,
   saveHtmlReport,
   saveJsonReport,
 } from "../src/report.js";
@@ -352,5 +353,172 @@ describe("describeStashFailure", () => {
       describeStashFailure({ ok: false, reason: "missing" }),
       /git stash list/,
     );
+  });
+});
+
+describe("advisory links in the HTML report", () => {
+  async function render(reports: ProjectReport[]): Promise<string> {
+    const out = path.join(tempDir(), "report.html");
+    await saveHtmlReport(reports, out);
+    return fs.readFileSync(out, "utf-8");
+  }
+
+  function vuln(overrides: Partial<ProjectReport["audit"]["vulnerabilities"][number]> = {}) {
+    return {
+      name: "lodash",
+      severity: "critical" as Severity,
+      title: "Prototype Pollution",
+      url: "https://github.com/advisories/GHSA-1234",
+      range: "<4.17.21",
+      fixAvailable: true,
+      fixIsBreaking: false,
+      ...overrides,
+    };
+  }
+
+  function withVulns(
+    vulns: ReturnType<typeof vuln>[],
+    audit: Partial<ProjectReport["audit"]> = {},
+  ) {
+    return reportWith({
+      audit: {
+        vulnerabilities: vulns,
+        totalCount: vulns.length,
+        fixableCount: vulns.filter((v) => v.fixAvailable && !v.fixIsBreaking)
+          .length,
+        breakingFixCount: vulns.filter((v) => v.fixIsBreaking).length,
+        bySeverity: severityMap({ critical: vulns.length }),
+        ...audit,
+      },
+    });
+  }
+
+  it("links the advisory instead of rendering the URL as dead text", async () => {
+    const html = await render([withVulns([vuln()])]);
+
+    assert.match(
+      html,
+      /<a href="https:\/\/github\.com\/advisories\/GHSA-1234"[^>]*>Prototype Pollution<\/a>/,
+    );
+    assert.match(html, /rel="noreferrer noopener"/);
+  });
+
+  it("refuses to link a non-http scheme", async () => {
+    const html = await render([
+      withVulns([vuln({ url: "javascript:alert(1)" })]),
+    ]);
+
+    assert.ok(
+      !/href="javascript:/i.test(html),
+      "advisory URLs are third-party strings — only http(s) may become an href",
+    );
+    assert.match(html, /Prototype Pollution/, "the title still shows as text");
+  });
+
+  it("renders plain text when there is no advisory URL", async () => {
+    const html = await render([withVulns([vuln({ url: "" })])]);
+
+    assert.match(html, /Prototype Pollution/);
+    assert.ok(!/<a href="">/.test(html));
+  });
+
+  it("marks a breaking-only fix distinctly from an available one", async () => {
+    const html = await render([
+      withVulns([vuln({ fixIsBreaking: true })]),
+    ]);
+
+    assert.match(html, />breaking</);
+  });
+
+  it("notes when code quality rows were truncated", async () => {
+    const issues = Array.from({ length: 25 }, (_, i) => ({
+      rule: "sonarjs/no-x",
+      severity: "moderate" as Severity,
+      message: `issue ${i}`,
+      file: "src/a.ts",
+      line: i + 1,
+      column: 1,
+    }));
+
+    const html = await render([
+      reportWith({
+        sonar: {
+          issues,
+          totalCount: issues.length,
+          issuesBySeverity: severityMap({ moderate: issues.length }),
+        },
+      }),
+    ]);
+
+    assert.match(
+      html,
+      /20 of 25/,
+      "silently showing a slice of the issues told the reader nothing was missing",
+    );
+  });
+});
+
+describe("remediation", () => {
+  it("says nothing for a clean project", () => {
+    assert.equal(
+      remediation(
+        reportWith({
+          audit: {
+            vulnerabilities: [],
+            totalCount: 0,
+            fixableCount: 0,
+            breakingFixCount: 0,
+            bySeverity: emptySeverityMap(),
+          },
+        }),
+      ),
+      undefined,
+    );
+  });
+
+  it("says nothing when the audit failed — the state is unknown", () => {
+    assert.equal(
+      remediation(
+        reportWith({
+          audit: {
+            vulnerabilities: [],
+            totalCount: 1,
+            fixableCount: 0,
+            breakingFixCount: 0,
+            bySeverity: severityMap({ high: 1 }),
+            error: "registry unreachable",
+          },
+        }),
+      ),
+      undefined,
+    );
+  });
+
+  it("names --force for npm when only breaking fixes remain", () => {
+    const text = remediation(
+      reportWith({
+        audit: {
+          vulnerabilities: [],
+          totalCount: 1,
+          fixableCount: 0,
+          breakingFixCount: 1,
+          bySeverity: severityMap({ critical: 1 }),
+        },
+      }),
+    );
+
+    assert.match(text ?? "", /npm audit fix --force/);
+    assert.match(text ?? "", /verify the build/);
+  });
+
+  it("does not tell a yarn user to run a command yarn does not have", () => {
+    const text = remediation(
+      reportWith({
+        project: projectInfo("/tmp/x", { packageManager: "yarn" }),
+      }),
+    );
+
+    assert.match(text ?? "", /no non-interactive audit fix/);
+    assert.ok(!/audit fix --force/.test(text ?? ""));
   });
 });
