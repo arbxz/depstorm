@@ -150,6 +150,7 @@ export function mergeConfig(raw: unknown, source = "config"): DepstormConfig {
     "sonarCheck",
     "dryRun",
     "allowInstallScripts",
+    "baselineVerify",
   ] as const) {
     set(key, bool(key));
   }

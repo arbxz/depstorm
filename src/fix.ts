@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import consola from "consola";
 import { runAudit } from "./audit.js";
+import { boundProjectOverrides } from "./overrides.js";
 import {
   BACKUP_SUFFIX,
   FIXABLE_PACKAGE_MANAGERS,
@@ -288,6 +289,12 @@ export async function applyFix(
       );
     }
 
+    // `audit fix` writes each remedy as an open-ended minimum, which lets the
+    // resolver satisfy an advisory by jumping a major. Bound them before the
+    // install, so the lockfile is resolved against the ceilings rather than
+    // pinned to the major they were meant to exclude.
+    const boundedOverrides = await boundProjectOverrides(project);
+
     // Re-install so node_modules matches the rewritten lockfile. If this
     // fails, the re-audit below would be measuring the *old* tree, so the
     // only honest outcome is an error — not "fix ran but nothing changed".
@@ -345,6 +352,7 @@ export async function applyFix(
       remainingCount: after.totalCount,
       remainingBySeverity: after.bySeverity,
       verified: true,
+      boundedOverrides,
       skippedReason:
         fixedCount === 0 ? "audit fix resolved nothing" : undefined,
     };

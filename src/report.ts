@@ -179,6 +179,11 @@ export function printSummary(reports: ProjectReport[]): void {
     }
 
     if (fix) {
+      if (fix.boundedOverrides && fix.boundedOverrides.length > 0) {
+        console.log(
+          `    🔒 ${fix.boundedOverrides.length} override(s) bounded to their current major, so the fix could not pull in a breaking release`,
+        );
+      }
       if (fix.applied && reverted) {
         console.log(
           `    ↩️  Fix rolled back — ${fix.fixedCount} vulnerabilit${fix.fixedCount === 1 ? "y" : "ies"} NOT resolved`,
@@ -214,6 +219,13 @@ export function printSummary(reports: ProjectReport[]): void {
         console.log(`    🏗️  Build: skipped (${build.output})`);
       } else if (build.success) {
         console.log("    🏗️  Build: PASSED");
+      } else if (build.preexistingFailure) {
+        console.log(
+          "    ⚠️  Build: FAILED — but it already failed before the fix, so the fix was kept",
+        );
+        console.log(
+          "    👉 This build needs attention on its own; the dependency change did not cause it.",
+        );
       } else {
         console.log("    ❌ Build: FAILED");
         if (reverted) console.log("    ↩️  Dependency changes reverted");
@@ -279,7 +291,14 @@ export function printSummary(reports: ProjectReport[]): void {
     console.log(`  Reverted (build broke): ${totalReverted}`);
   }
   if (totalFailed > 0) {
-    console.log(`  Build failures: ${totalFailed}`);
+    const preexisting = reports.filter(
+      (r) => r.build?.preexistingFailure === true,
+    ).length;
+    const suffix =
+      preexisting > 0
+        ? ` (${preexisting} already failing before the fix — those fixes were kept)`
+        : "";
+    console.log(`  Build failures: ${totalFailed}${suffix}`);
   }
   if (totalSonarIssues > 0) {
     console.log(`  Code quality issues: ${totalSonarIssues}`);

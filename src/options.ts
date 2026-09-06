@@ -97,6 +97,9 @@ export function applyCliOptions(
     config.concurrency = opts.concurrency as number;
   }
   if (opts.branch) config.sourceBranch = opts.branch as string;
+  // commander gives `baseline: false` for --no-baseline and leaves it
+  // undefined otherwise, so absent must stay absent.
+  if (opts.baseline === false) config.baselineVerify = false;
 
   // Opt-outs win over opt-ins, and over anything the config file enabled
   if (opts.push) config.gitPush = true;

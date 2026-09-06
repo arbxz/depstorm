@@ -112,6 +112,12 @@ export interface FixResult {
   remainingBySeverity?: Record<Severity, number>;
   /** Why no fix was applied, when applied === false */
   skippedReason?: string;
+  /**
+   * Overrides that were rewritten with a major ceiling the fixer left off,
+   * as "key: old -> new". Recorded so the report can show that the fix was
+   * narrowed, and why the resolved versions differ from a bare `audit fix`.
+   */
+  boundedOverrides?: string[];
   error?: string;
 }
 
@@ -121,6 +127,14 @@ export interface BuildResult {
   /** True when there was nothing meaningful to verify */
   skipped: boolean;
   error?: string;
+  /**
+   * True when this same command already failed *before* the fix was applied.
+   *
+   * A dependency fix cannot be blamed for breakage that predates it, and
+   * reverting on one throws away a real security fix to leave the build
+   * exactly as broken as it already was.
+   */
+  preexistingFailure?: boolean;
 }
 
 export interface SonarIssue {
@@ -220,8 +234,21 @@ export interface DepstormConfig {
   excludeDirs: string[];
   /** Output report path (extension is added automatically) */
   reportPath?: string;
-  /** Source branch to pull from before applying fixes (e.g. main, develop) */
+  /**
+   * Source branch to pull from before applying fixes (e.g. main, develop).
+   *
+   * The literal "current" keeps each repository on the branch it was found
+   * on. A fixed name is applied to every repository alike, which silently
+   * moves work off a feature branch and can select a different lockfile than
+   * the one the package manager was detected from.
+   */
   sourceBranch?: string;
+  /**
+   * Run the verification command once before fixing, to learn whether the
+   * project already built. Costs a second build; without it any pre-existing
+   * breakage is attributed to the fix and reverts it.
+   */
+  baselineVerify?: boolean;
   /** Per-project source branch overrides: { projectName: branchName } */
   projectBranches?: Record<string, string>;
   /** Whether to run SonarJS code quality checks */
@@ -276,6 +303,7 @@ export const DEFAULT_CONFIG: DepstormConfig = {
   sonarCheck: true,
   dryRun: false,
   allowInstallScripts: false,
+  baselineVerify: true,
 };
 
 /**

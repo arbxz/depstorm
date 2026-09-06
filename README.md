@@ -65,10 +65,11 @@ depstorm run [options]
 | `-c, --config <path>`      | Path to config file                                            |
 | `-s, --severity <level>`   | Minimum severity: `info\|low\|moderate\|high\|critical`        |
 | `-d, --depth <number>`     | Max scan depth (levels below each root)                        |
-| `-b, --branch <name>`      | Source branch to pull from                                     |
+| `-b, --branch <name>`      | Source branch to pull from, or `current` to stay put            |
 | `--dry-run`                | Report what would happen without changing anything             |
 | `--no-fix`                 | Skip auto-fix                                                  |
 | `--no-build`               | Skip build verification                                        |
+| `--no-baseline`            | Skip the pre-fix build check (see [Baseline verification](#baseline-verification)) |
 | `--no-git`                 | Skip **all** git operations (branch, commit, push and merge)   |
 | `--push`                   | Push branches to origin                                        |
 | `--skip-push`              | Never push, even if the config enables it                      |
@@ -149,6 +150,8 @@ Create a `.depstorm.json` in your working directory:
   "autoStash": false,
   "allowInstallScripts": false,
   "sonarCheck": true,
+  "baselineVerify": true,
+  "sourceBranch": "current",
   "dryRun": false,
   "scanDepth": 3,
   "excludeDirs": ["node_modules", ".git", "dist", "build", ".next", ".nuxt"],
@@ -162,6 +165,31 @@ Create a `.depstorm.json` in your working directory:
 
 `timeouts` are in seconds. `concurrency` is only honoured when nothing writes
 to git — see [Concurrency](#concurrency).
+
+`sourceBranch` accepts the literal `"current"`, which keeps every repository on
+the branch it was found on. Naming a fixed branch instead applies it to *every*
+repository alike: a repository whose work is on a feature branch gets moved off
+it, and the fix branch is then cut from somewhere the user was not. That also
+selects a different set of lockfiles than the ones the package manager was
+detected from, so depstorm re-checks after any branch switch and adopts what is
+actually on disk rather than auditing with one tool and committing a lockfile
+for another.
+
+### Baseline verification
+
+With `baselineVerify` on (the default), depstorm runs the verification command
+**once before fixing** to learn whether the project already built.
+
+A project can be failing its build for reasons that have nothing to do with
+dependencies — a lint rule the repository has been failing for months, a
+half-finished refactor sitting in the working tree, a missing module on a
+migration branch. Without a baseline, that failure is read as damage done by
+the fix, and `revertOnFailure` throws away a real security fix to leave the
+build exactly as broken as it already was.
+
+When the command failed beforehand too, the fix is **kept** and the report says
+so rather than blaming the dependency change. The cost is one extra build per
+project; `--no-baseline` turns it off.
 
 Only JSON and YAML config files are supported (`.depstorm.json`, `.depstormrc.yaml`, …).
 Executable config is deliberately not loaded — see [Security model](#security-model).

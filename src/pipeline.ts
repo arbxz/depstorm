@@ -1,4 +1,5 @@
 import consola from "consola";
+import fs from "node:fs/promises";
 import path from "node:path";
 import {
   registerCleanup,
@@ -8,6 +9,7 @@ import {
 import { resolveReportBase } from "./config.js";
 import { mapWithLimit } from "./semaphore.js";
 import { runAudit } from "./audit.js";
+import { redetectPackageManager } from "./discover.js";
 import {
   applyFix,
   backupProjectFiles,
@@ -260,6 +262,47 @@ function groupSourceBranch(
   return distinct[0] ?? config.sourceBranch;
 }
 
+/**
+ * The sentinel that means "stay where you are".
+ *
+ * A fixed source branch is applied to every repository alike, which moves
+ * work off whatever branch it was actually on. That is rarely wanted and was
+ * never harmless: it selects a different lockfile than the one the package
+ * manager was detected from, and it makes returning to the original branch a
+ * checkout that can fail.
+ */
+const CURRENT_BRANCH = "current";
+
+function wantsCurrentBranch(branch: string | undefined): boolean {
+  return branch?.trim().toLowerCase() === CURRENT_BRANCH;
+}
+
+/**
+ * Re-check the package manager after a branch switch and adopt what is
+ * actually on disk.
+ *
+ * Mutates the shared ProjectInfo so the audit, the fix, the install and the
+ * commit all agree — the alternative is auditing with one tool and writing a
+ * lockfile for another.
+ */
+async function realignPackageManagers(
+  projects: ProjectInfo[],
+): Promise<void> {
+  for (const project of projects) {
+    // A workspace member takes its manager from the root that resolves it,
+    // not from its own directory, which holds no lockfile by definition.
+    if (project.workspaceRoot) continue;
+
+    const found = await redetectPackageManager(project.path);
+    if (!found || found === project.packageManager) continue;
+
+    consola.warn(
+      `${project.name}: This branch is a ${found} project, not ${project.packageManager} — switching to ${found} for the rest of this run.`,
+    );
+    project.packageManager = found;
+  }
+}
+
 /** Audit (and optionally lint) a single project. Performs no writes. */
 async function auditProject(
   project: ProjectInfo,
@@ -412,9 +455,14 @@ async function processGroup(
 
       if (config.gitBranch) {
         const sourceBranch = groupSourceBranch(group.projects, config);
-        if (sourceBranch && !(await pullSourceBranch(repo, sourceBranch))) {
-          skipGit(`could not pull source branch "${sourceBranch}"`);
-          return reports;
+
+        if (sourceBranch && !wantsCurrentBranch(sourceBranch)) {
+          if (!(await pullSourceBranch(repo, sourceBranch))) {
+            skipGit(`could not pull source branch "${sourceBranch}"`);
+            return reports;
+          }
+          // The checkout may have brought a different set of lockfiles with it.
+          await realignPackageManagers(group.projects);
         }
 
         const created = await createFixBranch(repo);
@@ -434,6 +482,17 @@ async function processGroup(
 
     for (const report of eligible) {
       const project = report.project;
+
+      // Learn whether the project built *before* anything was changed. Without
+      // this, breakage that was already there — a lint rule the repository has
+      // been failing for months, a half-finished refactor in the working tree —
+      // is read as damage done by the fix, and a real security fix is thrown
+      // away to leave the build exactly as broken as it already was.
+      const baseline =
+        config.verifyBuild && config.revertOnFailure && config.baselineVerify
+          ? await verifyBuild(project, config, { baseline: true })
+          : undefined;
+
       backupsByProject.set(project.path, await backupProjectFiles(project.path));
 
       report.fix = await applyFix(project, report.audit, config);
@@ -454,7 +513,20 @@ async function processGroup(
       if (config.verifyBuild) {
         report.build = await verifyBuild(project, config);
 
-        if (!report.build.success && config.revertOnFailure) {
+        // A command that already failed cannot be evidence that the fix broke
+        // anything. Keep the fix, and say plainly that the build needs
+        // attention on its own.
+        if (
+          !report.build.success &&
+          baseline &&
+          !baseline.success &&
+          !baseline.skipped
+        ) {
+          report.build.preexistingFailure = true;
+          consola.warn(
+            `${project.name}: Build still fails, but it already failed before the fix — keeping the fix. The build needs attention on its own; this fix did not cause it.`,
+          );
+        } else if (!report.build.success && config.revertOnFailure) {
           consola.warn(`${project.name}: Build failed, reverting changes`);
           report.revertIncomplete = await revertFix(
             project,
@@ -525,6 +597,43 @@ async function commitStep(
 }
 
 /**
+ * Put back the touched files git cannot, and report the ones that stayed put.
+ *
+ * A backup exists for every file that was present before the fix, so it is the
+ * authoritative copy. A path with no backup did not exist beforehand — the fix
+ * created it, and reverting means removing it again.
+ */
+async function restoreUntracked(
+  repo: ProjectInfo,
+  untracked: string[],
+  backups: FileBackup[],
+): Promise<string[]> {
+  const failed: string[] = [];
+
+  for (const rel of untracked) {
+    const original = path.join(repo.path, ...rel.split("/"));
+    const backup = backups.find((b) => path.resolve(b.original) === path.resolve(original));
+
+    try {
+      if (backup) {
+        await fs.copyFile(backup.backup, original);
+        consola.info(`${repo.name}: Restored untracked ${rel} from backup`);
+      } else {
+        await fs.rm(original, { force: true });
+        consola.info(`${repo.name}: Removed ${rel}, which the fix created`);
+      }
+    } catch (err) {
+      failed.push(rel);
+      consola.error(
+        `${repo.name}: Could not restore untracked ${rel}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  return failed;
+}
+
+/**
  * Undo a fix that broke the build, restoring only the files depstorm touched
  * and reinstalling so node_modules matches the restored lockfile again.
  */
@@ -536,8 +645,24 @@ async function revertFix(
 ): Promise<string | undefined> {
   if (repo) {
     const touched = await repoRelativeTouched(project, repo.path);
-    await revertTouchedFiles(repo, touched);
+    const outcome = await revertTouchedFiles(repo, touched);
+
+    // Git can only restore what it tracks. Anything else is depstorm's to put
+    // back: from the backup it took before the fix, or by deleting a file the
+    // fix itself created. Leaving these behind is what previously stranded a
+    // half-applied fix and blocked the user's stash from coming back.
+    const unrestored = await restoreUntracked(repo, outcome.untracked, backups);
+
     await cleanupBackups(backups);
+
+    if (outcome.failed.length > 0 || unrestored.length > 0) {
+      const stuck = [...outcome.failed, ...unrestored].join(", ");
+      consola.error(
+        `${project.name}: Could not fully revert ${stuck} — the fix is still partly applied. Restore ${stuck} by hand before trusting this checkout.`,
+      );
+      return `could not revert ${stuck}`;
+    }
+
     consola.info(`${project.name}: Reinstalling from restored lockfile...`);
     const install = await runInstall(project, config);
     if (!install.ok) {

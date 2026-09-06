@@ -55,6 +55,10 @@ export async function cliMode() {
     )
     .option("--no-fix", "Skip auto-fix")
     .option("--no-build", "Skip build verification")
+    .option(
+      "--no-baseline",
+      "Skip the pre-fix build check (a build that was already failing will then revert the fix)",
+    )
     .option("--no-git", "Skip all git operations")
     .option("--push", "Push branches to origin")
     .option("--skip-push", "Never push, even if the config enables it")

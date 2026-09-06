@@ -12,6 +12,7 @@ import {
   restoreStash,
   revertTouchedFiles,
   switchBack,
+  trackedPaths,
 } from "../src/git.js";
 import {
   cleanupTempDirs,
@@ -646,5 +647,69 @@ describe("commitFixes from a repository root", () => {
       false,
       "a bare filename must not silently commit nothing — repoRelativeTouched exists for this",
     );
+  });
+});
+
+describe("revertTouchedFiles with an untracked lockfile", () => {
+  it("still reverts the tracked files when one path is untracked", async () => {
+    const dir = createRepo();
+    const project = projectInfo(dir);
+    const originalLock = readFile(dir, "package-lock.json");
+
+    // A project mid-migration between package managers: the old lockfile is
+    // tracked, the new one is not. `git checkout -- <both>` fails outright
+    // with "pathspec did not match", which used to revert neither.
+    writeFile(dir, "package-lock.json", '{"lockfileVersion":3,"broken":true}\n');
+    writeFile(dir, "pnpm-lock.yaml", "lockfileVersion: '9'\n");
+
+    const outcome = await revertTouchedFiles(project, [
+      "package.json",
+      "package-lock.json",
+      "pnpm-lock.yaml",
+    ]);
+
+    assert.equal(
+      readFile(dir, "package-lock.json"),
+      originalLock,
+      "the tracked lockfile must be restored even though a sibling is untracked",
+    );
+    assert.deepEqual(outcome.untracked, ["pnpm-lock.yaml"]);
+    assert.ok(outcome.reverted.includes("package-lock.json"));
+    assert.deepEqual(outcome.failed, []);
+  });
+
+  it("reports an untracked path rather than deleting it", async () => {
+    const dir = createRepo();
+    const project = projectInfo(dir);
+    writeFile(dir, "pnpm-lock.yaml", "lockfileVersion: '9'\n");
+
+    const outcome = await revertTouchedFiles(project, ["pnpm-lock.yaml"]);
+
+    assert.deepEqual(outcome.untracked, ["pnpm-lock.yaml"]);
+    assert.ok(
+      fileExists(dir, "pnpm-lock.yaml"),
+      "git has no business deleting a file it does not track — the caller owns it",
+    );
+  });
+
+  it("returns an empty outcome for no paths", async () => {
+    const dir = createRepo();
+    const outcome = await revertTouchedFiles(projectInfo(dir), []);
+    assert.deepEqual(outcome, { reverted: [], untracked: [], failed: [] });
+  });
+});
+
+describe("trackedPaths", () => {
+  it("separates what git knows from what it does not", async () => {
+    const dir = createRepo();
+    writeFile(dir, "pnpm-lock.yaml", "lockfileVersion: '9'\n");
+
+    const tracked = await trackedPaths(projectInfo(dir), [
+      "package.json",
+      "pnpm-lock.yaml",
+    ]);
+
+    assert.ok(tracked.has("package.json"));
+    assert.ok(!tracked.has("pnpm-lock.yaml"));
   });
 });

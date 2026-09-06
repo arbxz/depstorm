@@ -368,27 +368,84 @@ export async function commitFixes(
   }
 }
 
+/** Which of these repo-relative paths git actually has under version control. */
+export async function trackedPaths(
+  project: ProjectInfo,
+  paths: string[],
+): Promise<Set<string>> {
+  if (paths.length === 0) return new Set();
+
+  try {
+    const out = await getGit(project).raw(["ls-files", "-z", "--", ...paths]);
+    return new Set(out.split(" ").filter(Boolean));
+  } catch (err) {
+    consola.debug(
+      `${project.name}: Could not list tracked files: ${redactGitError(err)}`,
+    );
+    return new Set();
+  }
+}
+
+export interface RevertOutcome {
+  /** Paths git restored from HEAD */
+  reverted: string[];
+  /**
+   * Paths git cannot restore because they are untracked on this branch. The
+   * caller owns them: depstorm's own backup is the only copy of what they
+   * held before the fix.
+   */
+  untracked: string[];
+  /** Paths that are tracked but which git still refused to restore */
+  failed: string[];
+}
+
 /**
  * Undo a failed fix by restoring only the files depstorm touched.
  *
  * This deliberately does NOT run `git checkout -- .` or `git clean -fd`: those
  * discarded unrelated uncommitted work and deleted untracked files.
+ *
+ * A lockfile is routinely untracked — ignored on this branch, or created by
+ * the fix itself in a project mid-migration between package managers. Passing
+ * one to `git checkout --` fails the whole command with "pathspec ... did not
+ * match", so a single untracked lockfile used to leave *every* touched file
+ * unreverted, the fix half-applied, and the user's stash unpoppable. Each
+ * path is therefore classified first and restored on its own.
  */
 export async function revertTouchedFiles(
   project: ProjectInfo,
   paths: string[],
-): Promise<void> {
-  if (paths.length === 0) return;
-  const git = getGit(project);
+): Promise<RevertOutcome> {
+  const outcome: RevertOutcome = { reverted: [], untracked: [], failed: [] };
+  if (paths.length === 0) return outcome;
 
-  try {
-    await git.checkout(["--", ...paths]);
-    consola.info(`${project.name}: Reverted ${paths.join(", ")}`);
-  } catch (err) {
-    consola.error(
-      `${project.name}: Git revert error: ${redactGitError(err)}`,
+  const git = getGit(project);
+  const tracked = await trackedPaths(project, paths);
+
+  for (const p of paths) {
+    if (!tracked.has(p)) {
+      outcome.untracked.push(p);
+      continue;
+    }
+    // One checkout per path: a failure on one must not strand the others.
+    try {
+      await git.checkout(["--", p]);
+      outcome.reverted.push(p);
+    } catch (err) {
+      outcome.failed.push(p);
+      consola.error(
+        `${project.name}: Could not revert ${p}: ${redactGitError(err)}`,
+      );
+    }
+  }
+
+  if (outcome.reverted.length > 0) {
+    consola.info(
+      `${project.name}: Reverted ${outcome.reverted.join(", ")}`,
     );
   }
+
+  return outcome;
 }
 
 /**

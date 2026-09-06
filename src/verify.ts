@@ -91,8 +91,14 @@ async function pickVerifyCommand(
 export async function verifyBuild(
   project: ProjectInfo,
   config: Pick<DepstormConfig, "timeouts"> = {},
+  opts: { baseline?: boolean } = {},
 ): Promise<BuildResult> {
-  consola.start(`Verifying build for ${project.name}...`);
+  const baseline = opts.baseline === true;
+  consola.start(
+    baseline
+      ? `Checking ${project.name} builds before fixing...`
+      : `Verifying build for ${project.name}...`,
+  );
 
   const pkg = await readPackageJson(project.path);
   const cmd = await pickVerifyCommand(project, pkg);
@@ -118,7 +124,7 @@ export async function verifyBuild(
     const stdout = (result.stdout ?? "").slice(-MAX_OUTPUT_BYTES);
 
     if (result.exitCode === 0) {
-      consola.success(`${project.name}: Build passed`);
+      if (!baseline) consola.success(`${project.name}: Build passed`);
       return { success: true, skipped: false, output: stdout };
     }
 
@@ -131,9 +137,17 @@ export async function verifyBuild(
       .slice(-BUILD_ERROR_LINES)
       .join("\n");
 
-    consola.error(
-      `${project.name}: Build failed${detail ? `\n${detail}` : ""}`,
-    );
+    if (baseline) {
+      // Not an error: nothing has been changed yet. This is the reason a
+      // later failure must not be attributed to the fix.
+      consola.warn(
+        `${project.name}: "${cmd.label}" already fails before any fix — a failure after the fix will not be treated as caused by it.`,
+      );
+    } else {
+      consola.error(
+        `${project.name}: Build failed${detail ? `\n${detail}` : ""}`,
+      );
+    }
     return {
       success: false,
       skipped: false,

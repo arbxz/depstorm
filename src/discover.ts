@@ -42,6 +42,21 @@ async function detectPackageManager(
 }
 
 /**
+ * Which package manager the lockfiles on disk say owns this directory *now*.
+ *
+ * Discovery runs before any branch switch, so a repository whose branches
+ * disagree about the package manager — one mid-migration from npm to pnpm,
+ * say — can be detected as one and then operated on as the other. Re-checking
+ * after the checkout is what keeps the audit, the fix and the lockfile that
+ * gets committed all talking about the same tool.
+ */
+export async function redetectPackageManager(
+  projectPath: string,
+): Promise<PackageManager | null> {
+  return lockfileIn(projectPath);
+}
+
+/**
  * Find the nearest ancestor that actually governs this project's dependencies.
  *
  * The ancestor must both *declare a workspace* and hold a lockfile. Accepting

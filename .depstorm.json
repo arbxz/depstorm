@@ -12,7 +12,7 @@
   "allowInstallScripts": false,
   "sonarCheck": true,
   "dryRun": false,
-  "sourceBranch": "main",
+  "sourceBranch": "current",
   "scanDepth": 3,
   "excludeDirs": ["node_modules", ".git", "dist", "build", ".next", ".nuxt"],
   "reportPath": "./audit-reports/report"
