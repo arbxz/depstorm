@@ -19,6 +19,20 @@ export function parseDepth(value: string): number {
   return depth;
 }
 
+/**
+ * Days, not necessarily whole ones — "--min-release-age 0.5" is a legitimate
+ * way to say "a few hours is enough" without turning the check off entirely.
+ */
+export function parseMinReleaseAge(value: string): number {
+  const days = Number.parseFloat(value);
+  if (!Number.isFinite(days) || days < 0) {
+    throw new Error(
+      `--min-release-age must be a non-negative number of days, got "${value}"`,
+    );
+  }
+  return days;
+}
+
 export function parsePositiveInt(value: string): number {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed) || parsed < 1) {
@@ -100,6 +114,10 @@ export function applyCliOptions(
   // commander gives `baseline: false` for --no-baseline and leaves it
   // undefined otherwise, so absent must stay absent.
   if (opts.baseline === false) config.baselineVerify = false;
+  if (opts.releaseCooldown === false) config.minReleaseAgeDays = 0;
+  if (typeof opts.minReleaseAge === "number") {
+    config.minReleaseAgeDays = opts.minReleaseAge;
+  }
 
   // Opt-outs win over opt-ins, and over anything the config file enabled
   if (opts.push) config.gitPush = true;

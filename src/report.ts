@@ -184,6 +184,26 @@ export function printSummary(reports: ProjectReport[]): void {
           `    🔒 ${fix.boundedOverrides.length} override(s) bounded to their current major, so the fix could not pull in a breaking release`,
         );
       }
+      if (fix.heldForCooldown && fix.heldForCooldown.length > 0) {
+        console.log(
+          `    ⏳ Fix held — ${fix.heldForCooldown.length} version(s) too recently published to trust yet:`,
+        );
+        for (const held of fix.heldForCooldown.slice(0, 5)) {
+          console.log(`       ${held}`);
+        }
+        if (fix.heldForCooldown.length > 5) {
+          console.log(`       … and ${fix.heldForCooldown.length - 5} more`);
+        }
+        console.log(
+          "    👉 Re-run once they age past the cooldown, or lower --min-release-age.",
+        );
+      }
+      if (fix.raisedNodeFloor) {
+        console.log(`    ⬆️  Node requirement raised — ${fix.raisedNodeFloor}`);
+        console.log(
+          "    👉 Declare it in engines.node, or a deploy host will pick its own Node.",
+        );
+      }
       if (fix.applied && reverted) {
         console.log(
           `    ↩️  Fix rolled back — ${fix.fixedCount} vulnerabilit${fix.fixedCount === 1 ? "y" : "ies"} NOT resolved`,
@@ -299,6 +319,18 @@ export function printSummary(reports: ProjectReport[]): void {
         ? ` (${preexisting} already failing before the fix — those fixes were kept)`
         : "";
     console.log(`  Build failures: ${totalFailed}${suffix}`);
+  }
+  const held = reports.filter(
+    (r) => (r.fix?.heldForCooldown?.length ?? 0) > 0,
+  ).length;
+  if (held > 0) {
+    console.log(`  ⏳ Fixes held for the release cooldown: ${held}`);
+  }
+  const raisedNode = reports.filter(
+    (r) => r.fix?.raisedNodeFloor !== undefined,
+  ).length;
+  if (raisedNode > 0) {
+    console.log(`  ⬆️  Projects whose Node requirement rose undeclared: ${raisedNode}`);
   }
   if (totalSonarIssues > 0) {
     console.log(`  Code quality issues: ${totalSonarIssues}`);

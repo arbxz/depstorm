@@ -11,6 +11,7 @@
   "autoStash": false,
   "allowInstallScripts": false,
   "sonarCheck": true,
+  "minReleaseAgeDays": 3,
   "dryRun": false,
   "sourceBranch": "current",
   "scanDepth": 3,

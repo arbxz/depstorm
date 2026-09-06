@@ -70,6 +70,8 @@ depstorm run [options]
 | `--no-fix`                 | Skip auto-fix                                                  |
 | `--no-build`               | Skip build verification                                        |
 | `--no-baseline`            | Skip the pre-fix build check (see [Baseline verification](#baseline-verification)) |
+| `--min-release-age <days>` | Refuse versions published fewer than this many days ago (default 3) |
+| `--no-release-cooldown`    | Install a version however recently it was published             |
 | `--no-git`                 | Skip **all** git operations (branch, commit, push and merge)   |
 | `--push`                   | Push branches to origin                                        |
 | `--skip-push`              | Never push, even if the config enables it                      |
@@ -151,6 +153,7 @@ Create a `.depstorm.json` in your working directory:
   "allowInstallScripts": false,
   "sonarCheck": true,
   "baselineVerify": true,
+  "minReleaseAgeDays": 3,
   "sourceBranch": "current",
   "dryRun": false,
   "scanDepth": 3,
@@ -174,6 +177,46 @@ selects a different set of lockfiles than the ones the package manager was
 detected from, so depstorm re-checks after any branch switch and adopts what is
 actually on disk rather than auditing with one tool and committing a lockfile
 for another.
+
+### Release cooldown
+
+`audit fix` goes looking for the newest patch release of anything vulnerable.
+That is also the shape of a supply-chain compromise: an account is taken over,
+a malicious patch is published, and it is pulled into thousands of builds
+within hours — then yanked once someone notices.
+
+depstorm therefore refuses to pin a version published fewer than
+`minReleaseAgeDays` days ago (default **3**). The whole fix is held rather than
+partly applied: the manifest and lockfile are restored from backup, nothing is
+committed, and the run reports which versions are still in quarantine.
+
+The wait costs little. The advisory being fixed is already public and already
+in your tree, so a few days changes the exposure hardly at all — while landing
+the build outside the window in which these compromises are usually caught.
+
+Timing comes from `npm view <pkg> time`, so a private registry, `.npmrc` and
+auth are all honoured. A lookup that **fails** does not block the fix: an
+unreachable registry is a far more likely cause than a compromised package, and
+refusing every fix on a flaky network only teaches people to disable the check.
+Those packages are named in the output.
+
+Set `minReleaseAgeDays` to `0`, or pass `--no-release-cooldown`, to turn it off.
+
+### Node engine drift
+
+Build verification runs on whatever Node depstorm is using, so it cannot see a
+fix that raises the Node version the project *needs*. A bump pulls in a package
+requiring a newer Node, the local toolchain already has it, the build passes —
+and the deploy fails on a host that picked something older.
+
+After a fix, depstorm reads the `engines.node` every dependency declares
+straight out of the lockfile, takes the steepest, and compares it against what
+the project declares in `engines.node`, `.nvmrc` or `.node-version`. If the
+project declares nothing, or declares something lower, it says so and names the
+package responsible.
+
+This reports rather than blocks. The fix itself is sound; the remedy is one
+`engines` field, and that is the user's call to make.
 
 ### Baseline verification
 

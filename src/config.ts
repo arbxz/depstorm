@@ -177,6 +177,19 @@ export function mergeConfig(raw: unknown, source = "config"): DepstormConfig {
     }
   }
 
+  const minReleaseAge = input.minReleaseAgeDays;
+  if (minReleaseAge !== undefined) {
+    if (
+      typeof minReleaseAge !== "number" ||
+      !Number.isFinite(minReleaseAge) ||
+      minReleaseAge < 0
+    ) {
+      problems.push(`"minReleaseAgeDays" must be a non-negative number`);
+    } else {
+      config.minReleaseAgeDays = minReleaseAge;
+    }
+  }
+
   const branches = input.projectBranches;
   if (branches !== undefined) {
     if (

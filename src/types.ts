@@ -1,3 +1,4 @@
+import { DEFAULT_MIN_RELEASE_AGE_DAYS } from "./cooldown.js";
 export type PackageManager = "npm" | "pnpm" | "yarn";
 
 export type Severity = "info" | "low" | "moderate" | "high" | "critical";
@@ -118,6 +119,17 @@ export interface FixResult {
    * narrowed, and why the resolved versions differ from a bare `audit fix`.
    */
   boundedOverrides?: string[];
+  /**
+   * Versions the fix wanted to pin that are still inside the release-age
+   * quarantine, as "name@version (Nh old)". Present means the fix was held
+   * back rather than applied.
+   */
+  heldForCooldown?: string[];
+  /**
+   * Set when the resolved tree now requires a newer Node than the project
+   * declares. The fix is sound; the deploy target is what will break.
+   */
+  raisedNodeFloor?: string;
   error?: string;
 }
 
@@ -249,6 +261,14 @@ export interface DepstormConfig {
    * breakage is attributed to the fix and reverts it.
    */
   baselineVerify?: boolean;
+  /**
+   * Refuse to install a version published fewer than this many days ago.
+   *
+   * A compromised release is typically caught and yanked within a couple of
+   * days, and `audit fix` reaches for exactly the brand-new patch releases
+   * that window covers. 0 disables the quarantine.
+   */
+  minReleaseAgeDays?: number;
   /** Per-project source branch overrides: { projectName: branchName } */
   projectBranches?: Record<string, string>;
   /** Whether to run SonarJS code quality checks */
@@ -304,6 +324,7 @@ export const DEFAULT_CONFIG: DepstormConfig = {
   dryRun: false,
   allowInstallScripts: false,
   baselineVerify: true,
+  minReleaseAgeDays: DEFAULT_MIN_RELEASE_AGE_DAYS,
 };
 
 /**

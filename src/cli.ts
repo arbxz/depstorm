@@ -14,6 +14,7 @@ import {
   buildConfig,
   getProjects,
   parseDepth,
+  parseMinReleaseAge,
   parsePositiveInt,
 } from "./options.js";
 import { runPipeline } from "./pipeline.js";
@@ -58,6 +59,15 @@ export async function cliMode() {
     .option(
       "--no-baseline",
       "Skip the pre-fix build check (a build that was already failing will then revert the fix)",
+    )
+    .option(
+      "--min-release-age <days>",
+      "Refuse versions published fewer than this many days ago",
+      parseMinReleaseAge,
+    )
+    .option(
+      "--no-release-cooldown",
+      "Install a version however recently it was published",
     )
     .option("--no-git", "Skip all git operations")
     .option("--push", "Push branches to origin")

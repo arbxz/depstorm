@@ -5,6 +5,12 @@ import consola from "consola";
 import { runAudit } from "./audit.js";
 import { boundProjectOverrides } from "./overrides.js";
 import {
+  checkReleaseCooldown,
+  describeAge,
+  DEFAULT_MIN_RELEASE_AGE_DAYS,
+} from "./cooldown.js";
+import { checkNodeEngines, formatFloor } from "./engines.js";
+import {
   BACKUP_SUFFIX,
   FIXABLE_PACKAGE_MANAGERS,
   SEVERITY_ORDER,
@@ -54,6 +60,28 @@ export async function listTouchedFiles(projectPath: string): Promise<string[]> {
     if (await exists(path.join(projectPath, file))) found.push(file);
   }
   return found;
+}
+
+/** The lockfile a given package manager resolves its tree into. */
+export function lockfileFor(packageManager: ProjectInfo["packageManager"]): string {
+  if (packageManager === "pnpm") return "pnpm-lock.yaml";
+  if (packageManager === "yarn") return "yarn.lock";
+  return "package-lock.json";
+}
+
+/**
+ * Read a file, treating "not there" as empty rather than as an error.
+ *
+ * A project that had no lockfile before the fix is a legitimate state — every
+ * version the fix resolves is then new, which is exactly what the cooldown
+ * check should be looking at.
+ */
+async function readOrEmpty(filePath: string): Promise<string> {
+  try {
+    return await fs.readFile(filePath, "utf-8");
+  } catch {
+    return "";
+  }
 }
 
 /**
@@ -295,6 +323,11 @@ export async function applyFix(
     // pinned to the major they were meant to exclude.
     const boundedOverrides = await boundProjectOverrides(project);
 
+    // Captured before the install rewrites it, so the cooldown check below can
+    // tell which versions this fix is newly pinning.
+    const lockfile = path.join(project.path, lockfileFor(project.packageManager));
+    const lockBefore = await readOrEmpty(`${lockfile}${BACKUP_SUFFIX}`);
+
     // Re-install so node_modules matches the rewritten lockfile. If this
     // fails, the re-audit below would be measuring the *old* tree, so the
     // only honest outcome is an error — not "fix ran but nothing changed".
@@ -311,6 +344,39 @@ export async function applyFix(
         verified: false,
         error: `Reinstall after "${project.packageManager} audit fix" failed: ${install.message ?? "unknown error"}`,
       };
+    }
+
+    // Refuse a fix that would pin a version too new to have been vetted. This
+    // runs before the re-audit and before anything is committed: the install
+    // above ran with --ignore-scripts, so nothing from the new version has
+    // executed, and the caller restores the manifest and lockfile from backup.
+    const minAge = config.minReleaseAgeDays ?? DEFAULT_MIN_RELEASE_AGE_DAYS;
+    if (minAge > 0) {
+      const cooldown = await checkReleaseCooldown(
+        project,
+        lockBefore,
+        await readOrEmpty(lockfile),
+        config,
+      );
+
+      if (cooldown.tooFresh.length > 0) {
+        const held = cooldown.tooFresh.map(
+          (p) => `${p.name}@${p.version} (${describeAge(p.ageDays)})`,
+        );
+        consola.warn(
+          `${project.name}: Holding this fix — ${String(held.length)} version(s) were published less than ${String(minAge)} day(s) ago:\n${held.map((h) => `    ${h}`).join("\n")}\nA compromised release is usually caught and pulled within this window. Re-run after it passes, or lower --min-release-age if you have reason to trust these.`,
+        );
+        return {
+          applied: false,
+          fixedCount: 0,
+          remainingCount: auditResult.totalCount,
+          remainingBySeverity: auditResult.bySeverity,
+          verified: false,
+          boundedOverrides,
+          heldForCooldown: held,
+          skippedReason: `held: ${String(held.length)} version(s) published less than ${String(minAge)} day(s) ago`,
+        };
+      }
     }
 
     // Confirm what actually changed rather than assuming every fixable
@@ -336,6 +402,14 @@ export async function applyFix(
       };
     }
 
+    // Build verification runs on the local Node, so it cannot notice that the
+    // fix raised the Node floor above what the deploy target provides.
+    const engines = await checkNodeEngines(project, await readOrEmpty(lockfile));
+    const raisedNodeFloor =
+      engines?.unsatisfied === true
+        ? `needs Node >= ${formatFloor(engines.required)} (${engines.required.source})`
+        : undefined;
+
     const fixedCount = Math.max(0, auditResult.totalCount - after.totalCount);
 
     if (fixedCount === 0) {
@@ -353,6 +427,7 @@ export async function applyFix(
       remainingBySeverity: after.bySeverity,
       verified: true,
       boundedOverrides,
+      raisedNodeFloor,
       skippedReason:
         fixedCount === 0 ? "audit fix resolved nothing" : undefined,
     };
