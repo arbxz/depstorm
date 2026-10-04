@@ -1,4 +1,4 @@
-import cron from "node-cron";
+import cron, { type ScheduledTask } from "node-cron";
 import consola from "consola";
 
 export interface ScheduleOptions {
@@ -20,7 +20,7 @@ export function scheduleTask(
   expression: string,
   task: () => Promise<void>,
   options: ScheduleOptions = {},
-): cron.ScheduledTask {
+): ScheduledTask {
   if (!cron.validate(expression)) {
     consola.error(`Invalid cron expression: ${expression}`);
     throw new Error(`Invalid cron expression: ${expression}`);

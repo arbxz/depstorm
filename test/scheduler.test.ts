@@ -74,7 +74,7 @@ describe("scheduleTask", () => {
     assert.equal(started, 1);
 
     // A second tick arriving while the first run holds a stash and a branch
-    await task.now();
+    await task.execute();
     await tick();
 
     assert.equal(
@@ -95,7 +95,7 @@ describe("scheduleTask", () => {
     });
 
     await tick();
-    await task.now();
+    await task.execute();
     await tick();
     task.stop();
 
@@ -114,7 +114,7 @@ describe("scheduleTask", () => {
     );
 
     await tick();
-    await task.now();
+    await task.execute();
     await tick();
     task.stop();
 
