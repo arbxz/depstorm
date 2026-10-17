@@ -108,6 +108,64 @@ export function applyIgnores(
 
   if (ignored.length === 0) return result;
 
+  // npm reports the whole chain above a vulnerable package — roarr because it
+  // uses sprintf-js, global-agent because it uses roarr. Suppressing only the
+  // root left the rest counted, usually as breaking, with "npm audit fix
+  // --force" as the suggested remedy for an advisory already accepted. A
+  // package flagged only through suppressed packages is suppressed with them.
+  //
+  // npm's chains can loop (app-builder-lib and dmg-builder each list the
+  // other), so this starts from every inherited-only entry and discards the
+  // ones that trace back to anything still counted, until nothing changes.
+  // What survives reaches a vulnerability only through suppressed ones.
+  const suppressedNames = new Set(ignored.map((v) => v.name));
+  const candidates = new Set(
+    kept
+      .filter((v) => v.inheritedFrom !== undefined && v.inheritedFrom.length > 0)
+      .map((v) => v.name),
+  );
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const vulnerability of kept) {
+      if (!candidates.has(vulnerability.name)) continue;
+      const traced = (vulnerability.inheritedFrom ?? []).every(
+        (name) => suppressedNames.has(name) || candidates.has(name),
+      );
+      if (!traced) {
+        candidates.delete(vulnerability.name);
+        changed = true;
+      }
+    }
+  }
+  // ...and of those, only the ones that do lead to a suppressed advisory. A
+  // loop with no way out to one has nothing accepted behind it.
+  const reaches = new Set<string>();
+  changed = true;
+  while (changed) {
+    changed = false;
+    for (const vulnerability of kept) {
+      if (!candidates.has(vulnerability.name) || reaches.has(vulnerability.name)) {
+        continue;
+      }
+      const leads = (vulnerability.inheritedFrom ?? []).some(
+        (name) => suppressedNames.has(name) || reaches.has(name),
+      );
+      if (leads) {
+        reaches.add(vulnerability.name);
+        changed = true;
+      }
+    }
+  }
+  for (let i = kept.length - 1; i >= 0; i--) {
+    const vulnerability = kept[i];
+    if (vulnerability === undefined || !reaches.has(vulnerability.name)) {
+      continue;
+    }
+    kept.splice(i, 1);
+    ignored.push(vulnerability);
+  }
+
   const bySeverity = emptySeverityMap();
   for (const vulnerability of kept) bySeverity[vulnerability.severity]++;
 

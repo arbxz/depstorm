@@ -75,6 +75,14 @@ export function parseNpmAudit(json: NpmAuditJson): Vulnerability[] {
     const fixIsBreaking =
       typeof fix === "object" && fix !== null && fix.isSemVerMajor === true;
 
+    // A `via` of bare package names means no advisory of its own: npm flags
+    // the package only for what it depends on.
+    const via = data.via ?? [];
+    const inherited =
+      advisory === undefined && via.length > 0
+        ? via.filter((v): v is string => typeof v === "string")
+        : undefined;
+
     return {
       name,
       severity: toSeverity(data.severity ?? advisory?.severity),
@@ -83,6 +91,7 @@ export function parseNpmAudit(json: NpmAuditJson): Vulnerability[] {
       range: data.range ?? "*",
       fixAvailable: Boolean(fix),
       fixIsBreaking,
+      ...(inherited === undefined ? {} : { inheritedFrom: inherited }),
     };
   });
 }

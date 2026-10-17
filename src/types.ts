@@ -57,6 +57,12 @@ export interface Vulnerability {
    * arrives and makes a healthy run look like a failed one.
    */
   fixIsBreaking: boolean;
+  /**
+   * npm also lists every package that is vulnerable only because it depends
+   * on a vulnerable package. For those this names the packages it inherits
+   * from; it is absent when the package carries an advisory of its own.
+   */
+  inheritedFrom?: string[];
 }
 
 /**

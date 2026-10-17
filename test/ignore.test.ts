@@ -304,3 +304,87 @@ describe("parseIgnoreRules", () => {
     assert.match(parseIgnoreRules({}).problems.join("\n"), /must be an array/);
   });
 });
+
+describe("applyIgnores with npm dependency chains", () => {
+  const rule = [{ package: "sprintf-js", reason: "no patched release" }];
+  const inherits = (name: string, from: string[]) =>
+    vuln(name, "moderate", { fixIsBreaking: true, inheritedFrom: from });
+
+  it("suppresses packages flagged only through a suppressed one", () => {
+    const result = applyIgnores(
+      auditOf([
+        vuln("sprintf-js", "moderate"),
+        inherits("roarr", ["sprintf-js"]),
+        inherits("global-agent", ["roarr"]),
+        inherits("@electron/get", ["global-agent"]),
+      ]),
+      rule,
+    );
+
+    assert.equal(result.totalCount, 0);
+    assert.equal(
+      result.breakingFixCount,
+      0,
+      "an accepted advisory must not leave a breaking upgrade recommended",
+    );
+    assert.equal(result.ignored?.length, 4);
+  });
+
+  it("follows chains that loop back on themselves", () => {
+    const result = applyIgnores(
+      auditOf([
+        vuln("sprintf-js", "moderate"),
+        inherits("app-builder-lib", ["@electron/get", "dmg-builder"]),
+        inherits("dmg-builder", ["app-builder-lib"]),
+        inherits("@electron/get", ["sprintf-js"]),
+      ]),
+      rule,
+    );
+
+    assert.equal(result.totalCount, 0);
+  });
+
+  it("keeps a package that also depends on something still counted", () => {
+    const result = applyIgnores(
+      auditOf([
+        vuln("sprintf-js", "moderate"),
+        vuln("undici", "high"),
+        inherits("roarr", ["sprintf-js", "undici"]),
+      ]),
+      rule,
+    );
+
+    assert.deepEqual(
+      result.vulnerabilities.map((v) => v.name).sort(),
+      ["roarr", "undici"],
+    );
+  });
+
+  it("keeps a package with an advisory of its own", () => {
+    const result = applyIgnores(
+      auditOf([vuln("sprintf-js", "moderate"), vuln("roarr", "high")]),
+      rule,
+    );
+
+    assert.deepEqual(
+      result.vulnerabilities.map((v) => v.name),
+      ["roarr"],
+    );
+  });
+
+  it("does not suppress a loop with no way out to a suppressed advisory", () => {
+    const result = applyIgnores(
+      auditOf([
+        vuln("sprintf-js", "moderate"),
+        inherits("a", ["b"]),
+        inherits("b", ["a"]),
+      ]),
+      rule,
+    );
+
+    assert.deepEqual(
+      result.vulnerabilities.map((v) => v.name).sort(),
+      ["a", "b"],
+    );
+  });
+});

@@ -44,6 +44,21 @@ describe("parseNpmAudit", () => {
     });
   });
 
+  it("records which packages an advisory-less entry inherits from", () => {
+    const vulns = parseNpmAudit({
+      vulnerabilities: {
+        "sprintf-js": {
+          severity: "moderate",
+          via: [{ title: "DoS", url: "https://github.com/advisories/GHSA-hp3w-g68c-fv3c" }],
+        },
+        roarr: { severity: "moderate", via: ["sprintf-js"] },
+      },
+    });
+
+    assert.equal(vulns[0]?.inheritedFrom, undefined);
+    assert.deepEqual(vulns[1]?.inheritedFrom, ["sprintf-js"]);
+  });
+
   it("treats a non-major object fixAvailable as plainly fixable", () => {
     const [vuln] = parseNpmAudit({
       vulnerabilities: {

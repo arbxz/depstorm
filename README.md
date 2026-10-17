@@ -289,6 +289,11 @@ honest:
   and the advisory reappears — and the config load says which rules lapsed, so
   it does not happen silently.
 
+npm also flags every package that is vulnerable only because it depends on a
+vulnerable one. Those follow the advisory they inherit from: ignore `sprintf-js`
+and the `roarr` → `global-agent` → `@electron/get` chain above it goes with it,
+rather than being left behind as "breaking" fixes.
+
 Suppressed advisories are excluded from every count and from `--fail-on`, but
 they are still listed in both reports. A suppression nobody can see is
 indistinguishable from a bug.
