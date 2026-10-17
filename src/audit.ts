@@ -13,7 +13,13 @@ import {
   type Vulnerability,
 } from "./types.js";
 
-const MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
+/**
+ * pnpm lists every dependency path to each vulnerable package, so a large tree
+ * produces far more JSON than its advisory count suggests: an Expo app with a
+ * handful of advisories emits ~128 MB. 32 MB cut that off mid-string. Kept
+ * well under V8's ~512 MB limit on a single string.
+ */
+const MAX_OUTPUT_BYTES = 256 * 1024 * 1024;
 
 interface NpmFixAvailable {
   name?: string;
@@ -303,6 +309,14 @@ export async function runAudit(
       maxBuffer: MAX_OUTPUT_BYTES,
     });
     stdout = result.stdout ?? "";
+
+    // Truncated output only ever surfaced as a JSON parse error, which reads
+    // like a broken package manager rather than a buffer that was too small.
+    if (result.isMaxBuffer) {
+      return failed(
+        `${project.packageManager} audit printed more than ${String(MAX_OUTPUT_BYTES / 1024 / 1024)} MB of JSON — run it by hand to inspect`,
+      );
+    }
 
     // A missing package manager surfaces as a spawn failure, not audit output
     if (result.failed && !stdout.trim()) {
