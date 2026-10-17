@@ -278,6 +278,25 @@ function wantsCurrentBranch(branch: string | undefined): boolean {
 }
 
 /**
+ * The branch a fix branch merges back into.
+ *
+ * "current" is a sentinel, not a branch name. Passed through unresolved, the
+ * merge ran `git checkout current`, which fails in every repository — and in
+ * one that happens to hold a file called `current`, checks that file out over
+ * the user's uncommitted edits instead.
+ *
+ * @internal exported for tests
+ */
+export function mergeTarget(
+  projects: ProjectInfo[],
+  config: DepstormConfig,
+  originalBranch: string | undefined,
+): string | undefined {
+  const source = groupSourceBranch(projects, config);
+  return wantsCurrentBranch(source) ? originalBranch : source;
+}
+
+/**
  * Re-check the package manager after a branch switch and adopt what is
  * actually on disk.
  *
@@ -548,7 +567,7 @@ async function processGroup(
     }
 
     if (config.gitCommit && repo && applied.length > 0) {
-      await commitStep(repo, applied, config, fixBranch, group);
+      await commitStep(repo, applied, config, fixBranch, group, originalBranch);
     }
 
     return reports;
@@ -570,6 +589,7 @@ async function commitStep(
   config: DepstormConfig,
   fixBranch: string | undefined,
   group: RepoGroup,
+  originalBranch: string | undefined,
 ): Promise<void> {
   const paths: string[] = [];
   for (const report of applied) {
@@ -592,7 +612,7 @@ async function commitStep(
   }
 
   if (config.gitMerge) {
-    await mergeStep(repo, config, fixBranch, group);
+    await mergeStep(repo, config, fixBranch, group, originalBranch);
   }
 }
 
@@ -691,6 +711,7 @@ async function mergeStep(
   config: DepstormConfig,
   fixBranch: string | undefined,
   group: RepoGroup,
+  originalBranch: string | undefined,
 ): Promise<void> {
   if (!fixBranch) {
     consola.warn(
@@ -699,7 +720,7 @@ async function mergeStep(
     return;
   }
 
-  const target = groupSourceBranch(group.projects, config);
+  const target = mergeTarget(group.projects, config, originalBranch);
   if (!target) {
     consola.warn(
       `${repo.name}: Merge skipped — no source branch configured (set "sourceBranch" or --branch)`,

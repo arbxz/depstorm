@@ -1,12 +1,13 @@
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { repoRelativeTouched } from "../src/pipeline.js";
+import { mergeTarget, repoRelativeTouched } from "../src/pipeline.js";
 import {
   cleanupTempDirs,
   projectInfo,
   silenceLogs,
   tempDir,
+  testConfig,
   writeJson,
 } from "./helpers/repo.js";
 
@@ -61,5 +62,32 @@ describe("repoRelativeTouched", () => {
     assert.deepEqual(await repoRelativeTouched(projectInfo(repo), repo), [
       "package.json",
     ]);
+  });
+});
+
+describe("mergeTarget", () => {
+  const projects = [projectInfo("/repos/app")];
+
+  it("merges back into the branch the run started on when sourceBranch is \"current\"", () => {
+    const config = testConfig({ sourceBranch: "current" });
+    assert.equal(mergeTarget(projects, config, "feature/notes"), "feature/notes");
+  });
+
+  it("never hands the \"current\" sentinel to git as a branch name", () => {
+    const config = testConfig({ sourceBranch: " Current " });
+    assert.equal(mergeTarget(projects, config, undefined), undefined);
+  });
+
+  it("uses a named source branch as given", () => {
+    const config = testConfig({ sourceBranch: "main" });
+    assert.equal(mergeTarget(projects, config, "feature/notes"), "main");
+  });
+
+  it("prefers a per-project branch override", () => {
+    const config = testConfig({
+      sourceBranch: "current",
+      projectBranches: { app: "develop" },
+    });
+    assert.equal(mergeTarget(projects, config, "feature/notes"), "develop");
   });
 });
