@@ -467,6 +467,30 @@ export async function switchBack(
   }
 }
 
+/**
+ * Delete a fix branch that never received a commit — every fix in the
+ * repository was reverted, held or resolved nothing. Left behind, these pile up
+ * as `audit-fix/<date>` branches that look like unmerged work but hold none.
+ *
+ * Uses `git branch -d`, which refuses a branch with commits HEAD does not
+ * have, so this cannot discard a fix even if it is called by mistake.
+ */
+export async function deleteEmptyFixBranch(
+  project: ProjectInfo,
+  branch: string,
+): Promise<boolean> {
+  try {
+    await getGit(project).deleteLocalBranch(branch);
+    consola.debug(`${project.name}: Deleted ${branch}, which received no commits`);
+    return true;
+  } catch (err) {
+    consola.warn(
+      `${project.name}: Left ${branch} in place: ${redactGitError(err)}`,
+    );
+    return false;
+  }
+}
+
 export async function pushBranch(
   project: ProjectInfo,
   branch: string,

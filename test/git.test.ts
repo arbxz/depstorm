@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   commitFixes,
   createFixBranch,
+  deleteEmptyFixBranch,
   ensureCleanTree,
   getCurrentBranch,
   getSourceBranch,
@@ -384,6 +385,36 @@ describe("switchBack", () => {
     await switchBack(projectInfo(dir), original);
 
     assert.equal(currentBranch(dir), original);
+  });
+});
+
+describe("deleteEmptyFixBranch", () => {
+  it("deletes a fix branch that received no commits", async () => {
+    const dir = createRepo();
+    const project = projectInfo(dir);
+    const original = currentBranch(dir);
+
+    const fix = await createFixBranch(project);
+    assert.ok(fix);
+    await switchBack(project, original);
+
+    assert.equal(await deleteEmptyFixBranch(project, fix), true);
+    assert.equal(localBranches(dir).includes(fix), false);
+  });
+
+  it("refuses to delete a fix branch that holds a commit", async () => {
+    const dir = createRepo();
+    const project = projectInfo(dir);
+    const original = currentBranch(dir);
+
+    const fix = await createFixBranch(project);
+    assert.ok(fix);
+    writeFile(dir, "package-lock.json", '{"lockfileVersion":3,"changed":true}');
+    commitAll(dir, "a fix");
+    await switchBack(project, original);
+
+    assert.equal(await deleteEmptyFixBranch(project, fix), false);
+    assert.equal(localBranches(dir).includes(fix), true);
   });
 });
 

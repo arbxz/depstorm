@@ -23,6 +23,7 @@ import {
 import {
   commitFixes,
   createFixBranch,
+  deleteEmptyFixBranch,
   ensureCleanTree,
   getCurrentBranch,
   mergeBranch,
@@ -408,6 +409,7 @@ async function processGroup(
   let originalBranch: string | undefined;
   let stash: StashHandle | undefined;
   let fixBranch: string | undefined;
+  let committed = false;
 
   /**
    * Hand the repository back the way it was found. Backups go first: they are
@@ -426,6 +428,14 @@ async function processGroup(
       const branch = originalBranch;
       originalBranch = undefined;
       await switchBack(repo, branch);
+
+      // Only once back on the original branch: `git branch -d` cannot delete
+      // the branch it is standing on.
+      if (fixBranch !== undefined && !committed) {
+        const empty = fixBranch;
+        fixBranch = undefined;
+        await deleteEmptyFixBranch(repo, empty);
+      }
     }
 
     if (repo && stash) {
@@ -567,7 +577,14 @@ async function processGroup(
     }
 
     if (config.gitCommit && repo && applied.length > 0) {
-      await commitStep(repo, applied, config, fixBranch, group, originalBranch);
+      committed = await commitStep(
+        repo,
+        applied,
+        config,
+        fixBranch,
+        group,
+        originalBranch,
+      );
     }
 
     return reports;
@@ -590,7 +607,7 @@ async function commitStep(
   fixBranch: string | undefined,
   group: RepoGroup,
   originalBranch: string | undefined,
-): Promise<void> {
+): Promise<boolean> {
   const paths: string[] = [];
   for (const report of applied) {
     paths.push(...(await repoRelativeTouched(report.project, repo.path)));
@@ -605,7 +622,7 @@ async function commitStep(
   const verified = applied.every((report) => report.fix?.verified === true);
 
   const committed = await commitFixes(repo, paths, fixedCount, verified);
-  if (!committed) return;
+  if (!committed) return false;
 
   if (config.gitPush && fixBranch && !config.gitMerge) {
     await pushBranch(repo, fixBranch);
@@ -614,6 +631,7 @@ async function commitStep(
   if (config.gitMerge) {
     await mergeStep(repo, config, fixBranch, group, originalBranch);
   }
+  return true;
 }
 
 /**
