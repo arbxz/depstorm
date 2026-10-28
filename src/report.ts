@@ -198,6 +198,14 @@ export function printSummary(reports: ProjectReport[]): void {
           "    👉 Re-run once they age past the cooldown, or lower --min-release-age.",
         );
       }
+      if (fix.settledOn && fix.settledOn.length > 0) {
+        console.log(
+          `    ⏳ ${fix.settledOn.length} too-recent version(s) swapped for an older release past the cooldown:`,
+        );
+        for (const swap of fix.settledOn.slice(0, 5)) {
+          console.log(`       ${swap}`);
+        }
+      }
       if (fix.raisedNodeFloor) {
         console.log(`    ⬆️  Node requirement raised — ${fix.raisedNodeFloor}`);
         console.log(

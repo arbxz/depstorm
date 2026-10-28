@@ -132,6 +132,12 @@ export interface FixResult {
    */
   heldForCooldown?: string[];
   /**
+   * Versions swapped for an older release that had cleared the cooldown, as
+   * "name from -> to (age)". Present means the fix went ahead on those instead
+   * of being held.
+   */
+  settledOn?: string[];
+  /**
    * Set when the resolved tree now requires a newer Node than the project
    * declares. The fix is sound; the deploy target is what will break.
    */

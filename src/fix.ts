@@ -10,6 +10,7 @@ import {
   DEFAULT_MIN_RELEASE_AGE_DAYS,
 } from "./cooldown.js";
 import { checkNodeEngines, formatFloor } from "./engines.js";
+import { settleOnOlderReleases } from "./settle.js";
 import {
   BACKUP_SUFFIX,
   FIXABLE_PACKAGE_MANAGERS,
@@ -351,13 +352,32 @@ export async function applyFix(
     // above ran with --ignore-scripts, so nothing from the new version has
     // executed, and the caller restores the manifest and lockfile from backup.
     const minAge = config.minReleaseAgeDays ?? DEFAULT_MIN_RELEASE_AGE_DAYS;
+    let settledOn: string[] | undefined;
     if (minAge > 0) {
-      const cooldown = await checkReleaseCooldown(
+      let cooldown = await checkReleaseCooldown(
         project,
         lockBefore,
         await readOrEmpty(lockfile),
         config,
       );
+
+      if (cooldown.tooFresh.length > 0) {
+        const settled = await settleOnOlderReleases(project, cooldown.tooFresh, {
+          config: { ...config, minReleaseAgeDays: minAge },
+          lockAfterFix: await readOrEmpty(lockfile),
+          install: async () => (await runInstall(project, config)).ok,
+        });
+        if (settled) {
+          const recheck = await checkReleaseCooldown(
+            project,
+            lockBefore,
+            await readOrEmpty(lockfile),
+            config,
+          );
+          if (recheck.tooFresh.length === 0) settledOn = settled;
+          cooldown = recheck;
+        }
+      }
 
       if (cooldown.tooFresh.length > 0) {
         const held = cooldown.tooFresh.map(
@@ -427,6 +447,7 @@ export async function applyFix(
       remainingBySeverity: after.bySeverity,
       verified: true,
       boundedOverrides,
+      settledOn,
       raisedNodeFloor,
       skippedReason:
         fixedCount === 0 ? "audit fix resolved nothing" : undefined,

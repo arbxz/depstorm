@@ -186,9 +186,22 @@ a malicious patch is published, and it is pulled into thousands of builds
 within hours — then yanked once someone notices.
 
 depstorm therefore refuses to pin a version published fewer than
-`minReleaseAgeDays` days ago (default **3**). The whole fix is held rather than
-partly applied: the manifest and lockfile are restored from backup, nothing is
-committed, and the run reports which versions are still in quarantine.
+`minReleaseAgeDays` days ago (default **3**).
+
+The too-fresh version is usually not the one the advisory needs. A fix for vite
+re-resolves postcss and takes yesterday's release; an advisory fixed in 1.16.1
+gets 1.16.2 because it is newest. So each one is first swapped for the newest
+release **on the same major** (same minor below 1.0) that has cleared the
+cooldown, through a temporary override that is removed again once the
+lockfile holds it — the manifest ends up exactly as the fix wrote it. The build
+verification and re-audit that follow decide whether the older version works
+and still fixes the advisory.
+
+When there is no settled release, the pin would reach another major in the
+tree, or the project already overrides that package, the whole fix is held
+rather than partly applied: the manifest and lockfile are restored from backup,
+nothing is committed, and the run reports which versions are still in
+quarantine.
 
 The wait costs little. The advisory being fixed is already public and already
 in your tree, so a few days changes the exposure hardly at all — while landing
