@@ -176,6 +176,20 @@ describe("releaseRepository", () => {
     assert.deepEqual(plan, { skip: "no origin remote to release to" });
   });
 
+  it("releases with depstorm's own backup files still in the tree", async () => {
+    const { dir } = tauriApp();
+    // Where a fix earlier in the same run leaves them until it unwinds
+    writeFile(dir, "package.json.depstorm-backup", "{}\n");
+
+    const outcome = await releaseRepository(projectInfo(dir), "master", "Notes.");
+
+    assert.equal(outcome?.tag, "v0.1.2");
+    assert.equal(
+      git(dir, "show", "--name-only", "--format=", "HEAD").includes("depstorm-backup"),
+      false,
+    );
+  });
+
   it("does nothing when the last tag is already the head", async () => {
     const { dir } = tauriApp();
     await releaseRepository(projectInfo(dir), "master", "Notes.");

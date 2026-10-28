@@ -6,7 +6,7 @@ import { simpleGit } from "simple-git";
 import { redactGitError } from "./git.js";
 import { detectIndent } from "./overrides.js";
 import { compareVersions, parseRelease } from "./settle.js";
-import type { ProjectInfo } from "./types.js";
+import { BACKUP_SUFFIX, type ProjectInfo } from "./types.js";
 
 /**
  * Cutting a release after a fix lands on a release branch.
@@ -245,8 +245,20 @@ export async function planRelease(
   branch: string,
 ): Promise<ReleasePlan | { skip: string }> {
   const git = simpleGit(repo.path);
+  const noSystem = { skip: "no release system (no version tags or tag-triggered workflow)" };
 
-  if (!(await git.status()).isClean()) {
+  // Asked first, and from local tags, because it is the answer for most
+  // repositories and needs no network.
+  if (!(await detectReleaseSystem(repo.path, (await git.tags()).all))) {
+    return noSystem;
+  }
+
+  // depstorm's own backups are still on disk when a release follows a fix in
+  // the same run; they are not the user's work and are never committed.
+  const dirty = (await git.status()).files.filter(
+    (f) => !f.path.endsWith(BACKUP_SUFFIX),
+  );
+  if (dirty.length > 0) {
     return { skip: "the working tree has uncommitted changes" };
   }
 
@@ -261,11 +273,10 @@ export async function planRelease(
     return { skip: `${branch} is not in sync with origin/${branch}` };
   }
 
+  // Again with the tags just fetched: another machine may have released.
   const tags = (await git.tags()).all;
   const system = await detectReleaseSystem(repo.path, tags);
-  if (!system) {
-    return { skip: "no release system (no version tags or tag-triggered workflow)" };
-  }
+  if (!system) return noSystem;
 
   const lastTag = `${system.tagPrefix}${system.version}`;
   if (tags.includes(lastTag)) {
