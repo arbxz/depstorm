@@ -580,7 +580,12 @@ export async function mergeBranch(
     );
 
     let pushed = true;
-    if (options.push) {
+    // A repository with no origin is local by design; there is nothing to
+    // push to, and treating that as a failed push stranded the fix branch.
+    const hasOrigin = (await git.getRemotes()).some((r) => r.name === "origin");
+    if (options.push && !hasOrigin) {
+      consola.info(`${project.name}: No origin remote — the merge stays local`);
+    } else if (options.push) {
       pushed = await pushBranch(project, targetBranch);
       if (!pushed) {
         consola.warn(

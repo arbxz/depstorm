@@ -311,10 +311,23 @@ describe("mergeBranch", () => {
     assert.equal(git(dir, "remote"), "", "no remote — nothing could be pushed");
   });
 
+  it("treats a repository with no origin as a local merge", async () => {
+    const { project, target } = await repoWithFixBranch();
+
+    const merged = await mergeBranch(project, "audit-fix/test", target, {
+      push: true,
+      deleteBranch: true,
+    });
+
+    assert.equal(merged, true);
+    assert.equal(await hasBranch(project, "audit-fix/test"), false);
+  });
+
   it("keeps the fix branch when a requested push fails", async () => {
     const { dir, project, target } = await repoWithFixBranch();
 
-    // No remote configured, so the push cannot succeed
+    // An origin that does not exist, so the push cannot succeed
+    git(dir, "remote", "add", "origin", `${dir}-missing-origin`);
     const merged = await mergeBranch(project, "audit-fix/test", target, {
       push: true,
       deleteBranch: true,
