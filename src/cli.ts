@@ -8,6 +8,7 @@ import {
   listProjects,
   runMerge,
   runPush,
+  runRelease,
 } from "./actions.js";
 import { applyExitCode, EXIT_OPERATIONAL_FAILURE } from "./exit-code.js";
 import {
@@ -74,6 +75,12 @@ export async function cliMode() {
     .option("--skip-push", "Never push, even if the config enables it")
     .option("--merge", "Merge fix branches into the source branch")
     .option("--skip-merge", "Never merge, even if the config enables it")
+    .option(
+      "--release",
+      "Cut a patch release when a fix is merged and pushed to main/master (needs --merge --push)",
+    )
+    .option("--skip-release", "Never release, even if the config enables it")
+    .option("--no-pull", "Do not fast-forward the current branch before fixing")
     .option("--auto-stash", "Stash a dirty working tree without asking")
     .option(
       "--allow-install-scripts",
@@ -204,6 +211,22 @@ export async function cliMode() {
         targetBranch,
         Boolean(opts.push),
       );
+      if (failed > 0) process.exitCode = EXIT_OPERATIONAL_FAILURE;
+    });
+
+  discoveryOptions(program.command("release"))
+    .description(
+      "Cut a patch release of each repository on a release branch with unreleased commits",
+    )
+    .option("--dry-run", "Show what would be released without changing anything")
+    .option("-y, --yes", "Skip the confirmation prompt")
+    .action(async (opts) => {
+      const config = await buildConfig(opts);
+      const projects = await getProjects(config, opts);
+      const { failed } = await runRelease(projects, config, {
+        dryRun: Boolean(opts.dryRun),
+        assumeYes: Boolean(opts.yes),
+      });
       if (failed > 0) process.exitCode = EXIT_OPERATIONAL_FAILURE;
     });
 

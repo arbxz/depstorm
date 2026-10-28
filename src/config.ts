@@ -132,6 +132,7 @@ export function mergeConfig(raw: unknown, source = "config"): DepstormConfig {
     severity("severityThreshold") ?? DEFAULT_CONFIG.severityThreshold;
 
   set("projects", stringArray("projects"));
+  set("releaseBranches", stringArray("releaseBranches"));
   set("failOn", severity("failOn"));
   set("failOnQuality", severity("failOnQuality"));
   set("schedule", str("schedule"));
@@ -146,6 +147,8 @@ export function mergeConfig(raw: unknown, source = "config"): DepstormConfig {
     "gitCommit",
     "gitPush",
     "gitMerge",
+    "gitRelease",
+    "gitPull",
     "autoStash",
     "sonarCheck",
     "dryRun",
@@ -277,6 +280,14 @@ export function normaliseGitFlags(config: DepstormConfig): DepstormConfig {
       'Config: git branch/push/merge require "gitCommit" — enabling commits',
     );
     config.gitCommit = true;
+  }
+  // A release is a tag pushed to origin on a merged branch. Switching push on
+  // to make one would turn a local run into a write to shared branches.
+  if (config.gitRelease && (!config.gitMerge || !config.gitPush)) {
+    consola.warn(
+      'Config: "gitRelease" requires "gitMerge" and "gitPush" — releases are off for this run',
+    );
+    config.gitRelease = false;
   }
   return config;
 }

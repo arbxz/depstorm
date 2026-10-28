@@ -27,6 +27,7 @@ import {
   ensureCleanTree,
   getCurrentBranch,
   mergeBranch,
+  pullCurrentBranch,
   pullSourceBranch,
   pushBranch,
   restoreStash,
@@ -35,6 +36,7 @@ import {
   type StashHandle,
 } from "./git.js";
 import { reportOverrideDrift } from "./overrides.js";
+import { DEFAULT_RELEASE_BRANCHES, releaseRepository } from "./release.js";
 import { printSummary, saveHtmlReport, saveJsonReport } from "./report.js";
 import { runSonarCheck } from "./sonar.js";
 import { verifyBuild } from "./verify.js";
@@ -492,6 +494,16 @@ async function processGroup(
           }
           // The checkout may have brought a different set of lockfiles with it.
           await realignPackageManagers(group.projects);
+        } else if (config.gitPull !== false) {
+          // The audit above ran on what was on disk; a fast-forward can change
+          // that, but a fix built on a stale branch is one that cannot be
+          // pushed, and the fix re-audits after installing anyway.
+          const pulled = await pullCurrentBranch(repo);
+          if (!pulled.ok) {
+            skipGit(`could not fast-forward ${originalBranch} from upstream`);
+            return reports;
+          }
+          await realignPackageManagers(group.projects);
         }
 
         const created = await createFixBranch(repo);
@@ -629,7 +641,27 @@ async function commitStep(
   }
 
   if (config.gitMerge) {
-    await mergeStep(repo, config, fixBranch, group, originalBranch);
+    const merged = await mergeStep(repo, config, fixBranch, group, originalBranch);
+    const releaseBranches = config.releaseBranches ?? DEFAULT_RELEASE_BRANCHES;
+    if (
+      merged !== undefined &&
+      config.gitRelease &&
+      config.gitPush &&
+      releaseBranches.includes(merged)
+    ) {
+      // releaseRepository refuses unless the merge reached origin, so a push
+      // that failed above cannot be released past.
+      const outcome = await releaseRepository(
+        repo,
+        merged,
+        `Security fixes for ${String(fixedCount)} dependency vulnerabilit${fixedCount === 1 ? "y" : "ies"}, applied by depstorm.`,
+      );
+      if (outcome) {
+        for (const report of applied) {
+          report.release = { tag: outcome.tag, publishedBy: outcome.publishedBy };
+        }
+      }
+    }
   }
   return true;
 }
@@ -723,6 +755,8 @@ async function revertFix(
  *
  * Requires a branch depstorm created: merging "whatever branch we happen to be
  * on" into the source branch was never the intent of the `--merge` flag.
+ *
+ * Returns the branch merged into, or undefined when no merge happened.
  */
 async function mergeStep(
   repo: ProjectInfo,
@@ -730,12 +764,12 @@ async function mergeStep(
   fixBranch: string | undefined,
   group: RepoGroup,
   originalBranch: string | undefined,
-): Promise<void> {
+): Promise<string | undefined> {
   if (!fixBranch) {
     consola.warn(
       `${repo.name}: Merge skipped — no fix branch was created (enable "gitBranch")`,
     );
-    return;
+    return undefined;
   }
 
   const target = mergeTarget(group.projects, config, originalBranch);
@@ -743,11 +777,12 @@ async function mergeStep(
     consola.warn(
       `${repo.name}: Merge skipped — no source branch configured (set "sourceBranch" or --branch)`,
     );
-    return;
+    return undefined;
   }
 
-  await mergeBranch(repo, fixBranch, target, {
+  const merged = await mergeBranch(repo, fixBranch, target, {
     push: config.gitPush,
     deleteBranch: true,
   });
+  return merged ? target : undefined;
 }

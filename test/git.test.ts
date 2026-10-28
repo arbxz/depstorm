@@ -9,6 +9,7 @@ import {
   getSourceBranch,
   hasBranch,
   mergeBranch,
+  pullCurrentBranch,
   redactGitError,
   restoreStash,
   revertTouchedFiles,
@@ -29,6 +30,7 @@ import {
   silenceLogs,
   captureLogs,
   stashCount,
+  tempDir,
   testConfig,
   writeFile,
 } from "./helpers/repo.js";
@@ -742,5 +744,46 @@ describe("trackedPaths", () => {
 
     assert.ok(tracked.has("package.json"));
     assert.ok(!tracked.has("pnpm-lock.yaml"));
+  });
+});
+
+describe("pullCurrentBranch", () => {
+  /** A clone of a repository, with the original standing in for origin. */
+  function cloned(): { upstream: string; clone: string } {
+    const upstream = createRepo();
+    const clone = tempDir();
+    git(clone, "clone", "-q", "-c", "core.autocrlf=false", upstream, ".");
+    git(clone, "config", "user.email", "test@depstorm.invalid");
+    git(clone, "config", "user.name", "depstorm tests");
+    git(clone, "config", "commit.gpgsign", "false");
+    return { upstream, clone };
+  }
+
+  it("counts a branch with no upstream as up to date", async () => {
+    const dir = createRepo();
+    assert.deepEqual(await pullCurrentBranch(projectInfo(dir)), { ok: true });
+  });
+
+  it("fast-forwards a branch that is behind", async () => {
+    const { upstream, clone } = cloned();
+    writeFile(upstream, "src.js", "pushed from the other machine\n");
+    commitAll(upstream, "Other machine");
+
+    assert.deepEqual(await pullCurrentBranch(projectInfo(clone)), { ok: true });
+    assert.equal(readFile(clone, "src.js"), "pushed from the other machine\n");
+  });
+
+  it("refuses a branch that has diverged, and leaves it as it was", async () => {
+    const { upstream, clone } = cloned();
+    writeFile(upstream, "src.js", "theirs\n");
+    commitAll(upstream, "Theirs");
+    writeFile(clone, "other.js", "ours\n");
+    commitAll(clone, "Ours");
+    const head = git(clone, "rev-parse", "HEAD");
+
+    const result = await pullCurrentBranch(projectInfo(clone));
+    assert.equal(result.ok, false);
+    assert.equal(git(clone, "rev-parse", "HEAD"), head);
+    assert.equal(isDirty(clone), false);
   });
 });

@@ -77,6 +77,9 @@ depstorm run [options]
 | `--skip-push`              | Never push, even if the config enables it                      |
 | `--merge`                  | Merge fix branches into the source branch                      |
 | `--skip-merge`             | Never merge, even if the config enables it                     |
+| `--release`                | Cut a patch release when a fix is merged and pushed to `main`/`master` (see [Releases](#releases)) |
+| `--skip-release`           | Never release, even if the config enables it                   |
+| `--no-pull`                | Do not fast-forward the current branch from upstream first     |
 | `--auto-stash`             | Stash a dirty working tree without asking                      |
 | `--allow-install-scripts`  | Let dependency lifecycle scripts run during install            |
 | `--fail-on <level>`        | Exit non-zero if vulnerabilities at or above this level remain |
@@ -134,6 +137,19 @@ depstorm merge --fix-branch audit-fix/2026-08-02 --branch main [--push] [--yes]
 `merge` is **local only** unless you pass `--push`. Both commands prompt for
 confirmation; without a TTY they abort unless given `--yes`.
 
+### `release`
+
+Cut a patch release of every repository that is on a release branch and has
+commits since its last version tag — fixes pushed by an earlier run, or by
+hand, that installed copies have not seen yet.
+
+```bash
+depstorm release --dry-run        # list what would be released
+depstorm release [--yes]
+```
+
+It does what `run --release` does after a merge; see [Releases](#releases).
+
 ## Configuration
 
 Create a `.depstorm.json` in your working directory:
@@ -149,6 +165,9 @@ Create a `.depstorm.json` in your working directory:
   "gitCommit": true,
   "gitPush": false,
   "gitMerge": false,
+  "gitRelease": false,
+  "releaseBranches": ["main", "master"],
+  "gitPull": true,
   "autoStash": false,
   "allowInstallScripts": false,
   "sonarCheck": true,
@@ -265,9 +284,39 @@ warns when it does.
 | `gitBranch` | Create an `audit-fix/<date>` branch first (implies commit)    |
 | `gitPush`   | Push the branch to origin (implies commit)                    |
 | `gitMerge`  | Merge the fix branch into `sourceBranch` (implies branch)     |
+| `gitRelease`| Release after merging and pushing to a release branch (needs merge and push) |
+| `gitPull`   | Fast-forward the current branch from upstream first (default on) |
 
 `gitMerge` only ever merges a branch depstorm created, and only pushes the
 result when `gitPush` is also enabled.
+
+With `sourceBranch` set to `"current"`, depstorm fast-forwards the branch from
+its upstream before fixing, so a fix is never built on a checkout another
+machine has since pushed past. A branch that has **diverged** is skipped
+rather than merged: reconciling it is a person's job, and a fix committed on
+top could not be pushed anyway. A branch with no upstream is left as it is.
+
+### Releases
+
+A repository that ships versioned builds — a Tauri app whose installed copies
+update themselves from GitHub releases, a package with tags — gets its fixes to
+nobody from a bare push to `main`. With `gitRelease` on, once a fix is merged
+and pushed to one of `releaseBranches`, depstorm:
+
+1. bumps the **patch** version in every file that carries it — `package.json`,
+   `tauri.conf.json`, the `[package]` of `Cargo.toml` and its own `Cargo.lock`
+   entry (at the root or under `src-tauri/`) — refusing if they disagree;
+2. commits `Release X.Y.Z`, tags `vX.Y.Z` (or `X.Y.Z`, matching the existing
+   tags), and pushes the branch and the tag;
+3. leaves publishing to a workflow triggered by that tag, or otherwise runs
+   `gh release create --generate-notes`, and says so when neither exists.
+
+A repository counts as having a release system only on evidence: semver tags,
+or a workflow that runs on a pushed tag. A version field alone is not — every
+`package.json` has one. A release is also refused when the branch is not
+exactly what origin has, so local work never rides along with a tag, and when
+the newest tag is already the head. A step that fails part-way is undone:
+before the push, the commit, tag and edited files are all removed.
 
 Git work is done **per repository, not per project**. Several discovered
 projects can live in one repository — `repo/{api,web}/`, or a monorepo root
@@ -337,16 +386,19 @@ For each repository:
       (severity threshold, fixability, package manager, breaking-only fixes)
       → None? stop here — no branches, no stashing
   → Check the working tree is clean (prompt to stash; skip if unattended)
-  → Pull the source branch, create audit-fix/<date>          ← once per repository
+  → Pull the source branch (or fast-forward the current one),
+    create audit-fix/<date>                                  ← once per repository
   → For each fixable project:
       → Back up package.json + lockfile
       → Apply audit fix, reinstall with --ignore-scripts
+      → Too-fresh versions? swap for settled ones on the same major, or hold
       → Re-audit to confirm what was actually fixed
       → Verify: build → typecheck → test → tsc --noEmit
           → Fails → restore that project only, reinstall, report as reverted
   → Commit every surviving project's manifest and lockfile   ← one commit
       → gitPush  → push the fix branch
       → gitMerge → merge into the source branch (push only if gitPush)
+      → gitRelease → on main/master with a release system: bump, tag, push
   → Return to the original branch, restore the stash
       → Conflicted pop? report it and fail the run
 

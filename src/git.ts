@@ -305,6 +305,40 @@ export async function pullSourceBranch(
 }
 
 /**
+ * Fast-forward the branch the repository is on from its upstream.
+ *
+ * Only a fast-forward: a branch that has diverged from origin needs a person
+ * to reconcile it, and a fix committed on top could not be pushed anyway.
+ * A branch with no upstream has nothing to pull and counts as up to date.
+ */
+export async function pullCurrentBranch(
+  project: ProjectInfo,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const git = getGit(project);
+
+  try {
+    await git.raw(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+  } catch {
+    return { ok: true };
+  }
+
+  try {
+    const before = await git.revparse(["HEAD"]);
+    await git.pull(["--ff-only"]);
+    if ((await git.revparse(["HEAD"])) !== before) {
+      consola.success(`${project.name}: Fast-forwarded from upstream`);
+    }
+    return { ok: true };
+  } catch (err) {
+    const reason = redactGitError(err);
+    consola.warn(
+      `${project.name}: Could not fast-forward from upstream — it has diverged or is unreachable: ${reason}`,
+    );
+    return { ok: false, reason };
+  }
+}
+
+/**
  * Create a fresh branch for audit fixes. Returns the branch name, or null on failure.
  */
 export async function createFixBranch(

@@ -212,6 +212,8 @@ export interface ProjectReport {
    * users wondering where their fix branch went.
    */
   gitSkippedReason?: string;
+  /** The release cut after the fix landed on a release branch, if one was */
+  release?: { tag: string; publishedBy: "workflow" | "gh" | "nobody" };
 }
 
 export interface DepstormConfig {
@@ -237,6 +239,20 @@ export interface DepstormConfig {
   gitPush: boolean;
   /** Whether to auto-merge fix branches back into the source branch */
   gitMerge: boolean;
+  /**
+   * Cut a patch release after a fix is merged and pushed to a release branch,
+   * in repositories that have a release system (version tags or a
+   * tag-triggered workflow). Requires gitMerge and gitPush.
+   */
+  gitRelease?: boolean;
+  /** Branches a merged fix is released from. Defaults to main and master. */
+  releaseBranches?: string[];
+  /**
+   * Fast-forward the branch a repository is on from its upstream before
+   * fixing, when sourceBranch is "current" or unset. On unless set to false:
+   * a fix built on a stale branch cannot be pushed.
+   */
+  gitPull?: boolean;
   /**
    * Whether to stash a dirty working tree without asking when there is no TTY.
    * Off by default: unattended runs skip dirty projects instead of touching them.

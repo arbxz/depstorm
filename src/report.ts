@@ -264,6 +264,15 @@ export function printSummary(reports: ProjectReport[]): void {
       console.log(`    🌿 Branch: ${report.fixBranch}`);
     }
 
+    if (report.release) {
+      const by = {
+        workflow: "its release workflow publishes it",
+        gh: "release page created with gh",
+        nobody: "no release page yet — create one on GitHub",
+      }[report.release.publishedBy];
+      console.log(`    🏷️  Released ${report.release.tag} — ${by}`);
+    }
+
     if (report.gitSkippedReason) {
       console.log(`    🚧 No branch or commit — ${report.gitSkippedReason}`);
     }

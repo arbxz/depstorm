@@ -101,7 +101,10 @@ export function applyCliOptions(
     config.gitCommit = false;
     config.gitPush = false;
     config.gitMerge = false;
+    config.gitRelease = false;
+    config.gitPull = false;
   }
+  if (opts.pull === false) config.gitPull = false;
 
   if (opts.report === false) config.reportPath = undefined;
   else if (opts.report) config.reportPath = opts.report as string;
@@ -124,6 +127,8 @@ export function applyCliOptions(
   if (opts.merge) config.gitMerge = true;
   if (opts.skipPush) config.gitPush = false;
   if (opts.skipMerge) config.gitMerge = false;
+  if (opts.release) config.gitRelease = true;
+  if (opts.skipRelease) config.gitRelease = false;
 
   if (opts.autoStash) config.autoStash = true;
   if (opts.allowInstallScripts) config.allowInstallScripts = true;
