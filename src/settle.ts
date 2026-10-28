@@ -100,6 +100,34 @@ export function overrideIsContained(
     .every((p) => sameLine(p.version, fresh));
 }
 
+/**
+ * The override key that pins `name` on the fresh version's line only.
+ *
+ * The bare name when every copy in the tree is on that line. Otherwise pnpm
+ * can scope the override to a range — it applies to dependencies whose
+ * requested range falls inside it — so the other majors are left alone; npm
+ * overrides have no such selector, so there is no safe key. nuxt-soundboard
+ * holds rollup 2 and rollup 4, and a bare pin to 4.65 would have rewritten
+ * both.
+ *
+ * @internal exported for tests
+ */
+export function pinKey(
+  project: Pick<ProjectInfo, "packageManager">,
+  locked: { name: string; version: string }[],
+  name: string,
+  fresh: string,
+): string | null {
+  if (overrideIsContained(locked, name, fresh)) return name;
+  if (project.packageManager !== "pnpm") return null;
+
+  const v = parseRelease(fresh);
+  const ceiling = majorCeiling(fresh);
+  if (!v || !ceiling) return null;
+  const floor = v[0] === 0 ? `0.${String(v[1])}.0` : `${String(v[0])}.0.0`;
+  return `${name}@>=${floor} <${ceiling}`;
+}
+
 /** The override block a temporary pin goes into, created when absent. */
 function overrideBlock(
   pkg: Record<string, unknown>,
@@ -167,15 +195,22 @@ export async function settleOnOlderReleases(
   if (!block) return null;
 
   const locked = parseLockedVersions(options.lockAfterFix, project.packageManager);
-  const swaps: { name: string; from: string; to: string; ageDays: number }[] = [];
+  const swaps: {
+    key: string;
+    name: string;
+    from: string;
+    to: string;
+    ageDays: number;
+  }[] = [];
 
   for (const { name, version } of fresh) {
     // An override the project already declares for this exact name is its own
     // decision; replacing it, even briefly, could resolve against the wrong one.
     if (name in block) return null;
-    if (!overrideIsContained(locked, name, version)) return null;
-    // Two fresh versions of one package on one line cannot share a bare pin.
-    if (swaps.some((s) => s.name === name)) return null;
+    const key = pinKey(project, locked, name, version);
+    if (key === null || key in block) return null;
+    // Two fresh versions on one line cannot share a pin.
+    if (swaps.some((s) => s.key === key)) return null;
 
     const times = await fetchPublishTimes(
       name,
@@ -184,12 +219,12 @@ export async function settleOnOlderReleases(
     );
     const pick = times && pickSettledVersion(times, version, minAgeDays, now);
     if (!pick) return null;
-    swaps.push({ name, from: version, to: pick.version, ageDays: pick.ageDays });
+    swaps.push({ key, name, from: version, to: pick.version, ageDays: pick.ageDays });
   }
 
   if (swaps.length === 0) return null;
 
-  for (const swap of swaps) block[swap.name] = swap.to;
+  for (const swap of swaps) block[swap.key] = swap.to;
 
   const trailingNewline = raw.endsWith("\n") ? "\n" : "";
   await fs.writeFile(

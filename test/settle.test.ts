@@ -7,6 +7,7 @@ import {
   overrideIsContained,
   parseRelease,
   pickSettledVersion,
+  pinKey,
   sameLine,
   settleOnOlderReleases,
 } from "../src/settle.js";
@@ -91,6 +92,37 @@ describe("overrideIsContained", () => {
       { name: "postcss", version: "7.0.39" },
     ];
     assert.equal(overrideIsContained(locked, "postcss", "8.5.32"), false);
+  });
+});
+
+describe("pinKey", () => {
+  const twoMajors = [
+    { name: "rollup", version: "4.66.0" },
+    { name: "rollup", version: "2.80.0" },
+  ];
+
+  it("uses the bare name when the tree holds one line", () => {
+    const locked = [{ name: "rollup", version: "4.66.0" }];
+    assert.equal(pinKey({ packageManager: "pnpm" }, locked, "rollup", "4.66.0"), "rollup");
+  });
+
+  it("scopes a pnpm pin to the fresh major when others are present", () => {
+    assert.equal(
+      pinKey({ packageManager: "pnpm" }, twoMajors, "rollup", "4.66.0"),
+      "rollup@>=4.0.0 <5.0.0",
+    );
+  });
+
+  it("scopes 0.x to its minor", () => {
+    const locked = [
+      { name: "x", version: "0.5.4" },
+      { name: "x", version: "0.4.1" },
+    ];
+    assert.equal(pinKey({ packageManager: "pnpm" }, locked, "x", "0.5.4"), "x@>=0.5.0 <0.6.0");
+  });
+
+  it("has no safe key for npm, whose overrides take no range", () => {
+    assert.equal(pinKey({ packageManager: "npm" }, twoMajors, "rollup", "4.66.0"), null);
   });
 });
 
