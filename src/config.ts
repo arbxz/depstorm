@@ -133,6 +133,7 @@ export function mergeConfig(raw: unknown, source = "config"): DepstormConfig {
 
   set("projects", stringArray("projects"));
   set("releaseBranches", stringArray("releaseBranches"));
+  set("verifyScripts", stringArray("verifyScripts"));
   set("failOn", severity("failOn"));
   set("failOnQuality", severity("failOnQuality"));
   set("schedule", str("schedule"));

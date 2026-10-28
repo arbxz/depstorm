@@ -159,6 +159,8 @@ export interface BuildResult {
    * exactly as broken as it already was.
    */
   preexistingFailure?: boolean;
+  /** The verification scripts that failed, e.g. ["lint"] */
+  failedSteps?: string[];
 }
 
 export interface SonarIssue {
@@ -229,6 +231,12 @@ export interface DepstormConfig {
   autoFix: boolean;
   /** Whether to run build verification after fixing */
   verifyBuild: boolean;
+  /**
+   * Scripts to verify with, each one the project defines, in order — e.g.
+   * ["build", "typecheck", "lint", "test"]. Unset, only the first of build,
+   * typecheck and test that exists is run.
+   */
+  verifyScripts?: string[];
   /** Whether to revert on build failure */
   revertOnFailure: boolean;
   /** Whether to create git branches for fixes */

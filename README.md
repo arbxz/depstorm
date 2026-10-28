@@ -266,6 +266,21 @@ When the command failed beforehand too, the fix is **kept** and the report says
 so rather than blaming the dependency change. The cost is one extra build per
 project; `--no-baseline` turns it off.
 
+### Verify scripts
+
+By default a fix is verified with the first of `build`, `typecheck` and `test`
+the project defines. Set `verifyScripts` to check more than that:
+
+```json
+{ "verifyScripts": ["build", "typecheck", "lint", "test"] }
+```
+
+Each listed script the project defines runs, in order, and every one runs even
+after one fails, so the baseline knows about each step: a lint rule that was
+already failing does not excuse a build the fix broke. Tests run with `CI=1`
+so vitest, nx and most runners run once, and a jest script that asks for a
+watch (`jest --watchAll`) gets `--watchAll=false`.
+
 Only JSON and YAML config files are supported (`.depstorm.json`, `.depstormrc.yaml`, …).
 Executable config is deliberately not loaded — see [Security model](#security-model).
 

@@ -55,7 +55,7 @@ const RN_VERIFY_SCRIPTS = ["typecheck", "lint", "test"] as const;
 async function pickVerifyCommand(
   project: ProjectInfo,
   pkg: Record<string, unknown>,
-): Promise<{ label: string; bin: string; args: string[] } | null> {
+): Promise<VerifyCommand | null> {
   const scripts = (pkg.scripts ?? {}) as Record<string, string>;
   const candidates = isReactNative(pkg) ? RN_VERIFY_SCRIPTS : VERIFY_SCRIPTS;
 
@@ -82,28 +82,95 @@ async function pickVerifyCommand(
   return null;
 }
 
+interface VerifyCommand {
+  label: string;
+  bin: string;
+  args: string[];
+  env?: Record<string, string>;
+}
+
+/**
+ * Every script in `verifyScripts` the project defines, in that order.
+ *
+ * Test scripts run with CI=1, which is what makes vitest, nx and most runners
+ * run once instead of watching. Jest ignores it when the script itself asks
+ * for a watch, as app-zap's "jest --watchAll" does, so that is switched off
+ * explicitly — a watch never exits and would only end at the build timeout.
+ *
+ * @internal exported for tests
+ */
+export function verifyCommands(
+  project: ProjectInfo,
+  pkg: Record<string, unknown>,
+  scripts: string[],
+): VerifyCommand[] {
+  const defined = (pkg.scripts ?? {}) as Record<string, string>;
+  const commands: VerifyCommand[] = [];
+
+  for (const script of scripts) {
+    const body = defined[script];
+    if (!body) continue;
+
+    const args = ["run", script];
+    let env: Record<string, string> | undefined;
+    if (script === "test") {
+      env = { CI: "1" };
+      if (/\bjest\b/.test(body) && /--watch(All)?\b/.test(body)) {
+        // npm forwards only what follows "--"; pnpm and yarn forward as-is,
+        // and a literal "--" would reach jest as a test path pattern.
+        if (project.packageManager === "npm") args.push("--");
+        args.push("--watchAll=false");
+      }
+    }
+    commands.push({ label: script, bin: project.packageManager, args, env });
+  }
+  return commands;
+}
+
 /**
  * Run the project's build script to verify fixes didn't break anything.
+ *
+ * With `verifyScripts` set, runs each of those the project defines instead,
+ * and the first failure is the result.
  *
  * NOTE: this executes code from the target project by design. It only runs
  * for projects the user pointed depstorm at.
  */
 export async function verifyBuild(
   project: ProjectInfo,
-  config: Pick<DepstormConfig, "timeouts"> = {},
+  config: Pick<DepstormConfig, "timeouts" | "verifyScripts"> = {},
   opts: { baseline?: boolean } = {},
 ): Promise<BuildResult> {
-  const baseline = opts.baseline === true;
-  consola.start(
-    baseline
-      ? `Checking ${project.name} builds before fixing...`
-      : `Verifying build for ${project.name}...`,
-  );
+  if (config.verifyScripts && config.verifyScripts.length > 0) {
+    const pkg = await readPackageJson(project.path);
+    const commands = verifyCommands(project, pkg, config.verifyScripts);
+    if (commands.length > 0) {
+      // Every step runs even after one fails: the baseline has to know about
+      // each step separately, or a lint rule that was already failing would
+      // excuse a build the fix broke.
+      let firstFailure: BuildResult | undefined;
+      let last: BuildResult | undefined;
+      const failedSteps: string[] = [];
+      for (const cmd of commands) {
+        last = await runVerifyCommand(project, config, cmd, opts);
+        if (!last.success) {
+          failedSteps.push(cmd.label);
+          firstFailure ??= last;
+        }
+      }
+      if (firstFailure) return { ...firstFailure, failedSteps };
+      return last as BuildResult;
+    }
+  }
 
   const pkg = await readPackageJson(project.path);
   const cmd = await pickVerifyCommand(project, pkg);
-
   if (!cmd) {
+    consola.start(
+      opts.baseline === true
+        ? `Checking ${project.name} builds before fixing...`
+        : `Verifying build for ${project.name}...`,
+    );
     const tried = (
       isReactNative(pkg) ? RN_VERIFY_SCRIPTS : VERIFY_SCRIPTS
     ).join(", ");
@@ -111,7 +178,21 @@ export async function verifyBuild(
     consola.warn(`${project.name}: ${reason}`);
     return { success: true, skipped: true, output: reason };
   }
+  return runVerifyCommand(project, config, cmd, opts);
+}
 
+async function runVerifyCommand(
+  project: ProjectInfo,
+  config: Pick<DepstormConfig, "timeouts">,
+  cmd: VerifyCommand,
+  opts: { baseline?: boolean },
+): Promise<BuildResult> {
+  const baseline = opts.baseline === true;
+  consola.start(
+    baseline
+      ? `Checking ${project.name} builds before fixing...`
+      : `Verifying build for ${project.name}...`,
+  );
   consola.info(`${project.name}: Running "${cmd.label}"...`);
 
   try {
@@ -119,6 +200,7 @@ export async function verifyBuild(
       cwd: project.path,
       reject: false,
       timeout: timeoutMs(config, "build"),
+      env: cmd.env,
     });
 
     const stdout = (result.stdout ?? "").slice(-MAX_OUTPUT_BYTES);
@@ -169,6 +251,12 @@ export async function verifyBuild(
     }
 
     consola.error(`${project.name}: Build verification error: ${message}`);
-    return { success: false, skipped: false, output: "", error: message };
+    return {
+      success: false,
+      skipped: false,
+      output: "",
+      error: message,
+      failedSteps: [cmd.label],
+    };
   }
 }

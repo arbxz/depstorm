@@ -44,6 +44,7 @@ import {
   BACKUP_SUFFIX,
   emptySeverityMap,
   type AuditResult,
+  type BuildResult,
   type DepstormConfig,
   type ProjectInfo,
   type ProjectReport,
@@ -561,7 +562,8 @@ async function processGroup(
           !report.build.success &&
           baseline &&
           !baseline.success &&
-          !baseline.skipped
+          !baseline.skipped &&
+          onlyFailsWhereBaselineDid(report.build, baseline)
         ) {
           report.build.preexistingFailure = true;
           consola.warn(
@@ -606,6 +608,24 @@ async function processGroup(
     await unwind();
     unregisterCleanup(cleanup);
   }
+}
+
+/**
+ * Whether every step failing after the fix was already failing before it.
+ *
+ * With several verification scripts, "the baseline failed" is not enough: a
+ * lint rule failing for months must not excuse a build the fix broke. A
+ * result without step names (an older single-command run) keeps the previous
+ * rule, that any baseline failure counts.
+ *
+ * @internal exported for tests
+ */
+export function onlyFailsWhereBaselineDid(
+  after: BuildResult,
+  baseline: BuildResult,
+): boolean {
+  if (!after.failedSteps || !baseline.failedSteps) return true;
+  return after.failedSteps.every((step) => baseline.failedSteps?.includes(step));
 }
 
 /**
